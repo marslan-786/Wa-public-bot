@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
@@ -23,7 +24,7 @@ import (
 var client *whatsmeow.Client
 
 func main() {
-	fmt.Println("🚀 Initializing Impossible Bot Engine...")
+	fmt.Println("🚀 Starting Impossible Bot Engine...")
 
 	// ڈیٹا بیس سیٹ اپ
 	dbURL := os.Getenv("DATABASE_URL")
@@ -34,23 +35,16 @@ func main() {
 	}
 
 	dbLog := waLog.Stdout("Database", "INFO", true)
-	// فکسڈ: context.Background() شامل کر دیا گیا ہے
 	container, err := sqlstore.New(context.Background(), dbType, dbURL, dbLog)
-	if err != nil {
-		fmt.Printf("❌ Database Init Error: %v\n", err)
-		panic(err)
-	}
+	if err != nil { panic(err) }
 
-	// فکسڈ: context.Background() شامل کر دیا گیا ہے
 	deviceStore, err := container.GetFirstDevice(context.Background())
-	if err != nil {
-		panic(err)
-	}
+	if err != nil { panic(err) }
 
 	client = whatsmeow.NewClient(deviceStore, waLog.Stdout("Client", "INFO", true))
 	client.AddEventHandler(eventHandler)
 
-	// ویب سرور (Gin)
+	// ویب سرور
 	port := os.Getenv("PORT")
 	if port == "" { port = "8080" }
 	
@@ -66,16 +60,30 @@ func main() {
 			return
 		}
 
+		// کنکشن گارڈ: اگر کنیکٹ نہیں ہے تو کریں
 		if !client.IsConnected() {
 			client.Connect()
+			// واٹس ایپ کو ریڈی ہونے کے لیے وقت دیں
+			time.Sleep(5 * time.Second) 
 		}
 
-		// پیرنگ لاجک
-		code, err := client.PairPhone(context.Background(), req.Number, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+		// پیرنگ کوڈ جنریٹ کرنے کی کوشش (بشمول ری ٹرائی لاجک)
+		var code string
+		var pairErr error
+		for i := 0; i < 3; i++ { // 3 بار کوشش کریں
+			code, pairErr = client.PairPhone(context.Background(), req.Number, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+			if pairErr == nil {
+				break
+			}
+			fmt.Printf("⚠️ Retrying Pairing... (%d/3)\n", i+1)
+			time.Sleep(3 * time.Second)
+		}
+
+		if pairErr != nil {
+			c.JSON(500, gin.H{"error": "Connection unstable. Please refresh page and try again."})
 			return
 		}
+
 		c.JSON(200, gin.H{"code": code})
 	})
 
@@ -88,7 +96,6 @@ func main() {
 		client.Connect()
 	}
 
-	// Exit signal handling
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
@@ -103,15 +110,14 @@ func eventHandler(evt interface{}) {
 			body = v.Message.GetExtendedTextMessage().GetText()
 		}
 
-		// مینیو کمانڈ چیک کرنا
 		if strings.TrimSpace(body) == "#menu" {
 			sendOfficialMenu(v.Info.Chat)
 		}
 	}
 }
 
-// واٹس ایپ MENU بٹن (List Message)
 func sendOfficialMenu(chat types.JID) {
+	// واٹس ایپ MENU بٹن (List Message)
 	listMsg := &waProto.ListMessage{
 		Title:       proto.String("IMPOSSIBLE BOT MENU"),
 		Description: proto.String("Select a command category below"),
