@@ -25,11 +25,12 @@ var client *whatsmeow.Client
 var container *sqlstore.Container
 
 func main() {
-	fmt.Println("🚀 [System] Impossible Bot starting with VERBOSE LOGGING...")
+	fmt.Println("🚀 [Impossible Bot] Initializing Verbose Engine...")
 
 	dbURL := os.Getenv("DATABASE_URL")
 	dbType := "postgres"
 	if dbURL == "" {
+		fmt.Println("⚠️ [DB] No DATABASE_URL found, using local SQLite")
 		dbURL = "file:impossible_session.db?_foreign_keys=on"
 		dbType = "sqlite3"
 	}
@@ -56,12 +57,12 @@ func main() {
 	r.POST("/api/pair", handlePairAPI)
 
 	go func() {
-		fmt.Printf("🌐 [Web] Dashboard running at: http://0.0.0.0:%s\n", port)
+		fmt.Printf("🌐 [Server] Listening on port %s\n", port)
 		r.Run(":" + port)
 	}()
 
 	if client.Store.ID != nil {
-		fmt.Println("🔄 [Auth] Reconnecting existing session...")
+		fmt.Println("🔄 [System] Resuming previous session...")
 		client.Connect()
 	}
 
@@ -71,33 +72,12 @@ func main() {
 	client.Disconnect()
 }
 
-// میسج سے ٹیکسٹ نکالنے کا تفصیلی طریقہ (Log Printing کے ساتھ)
-func getDetailedText(msg *waProto.Message) string {
+func getMessageText(msg *waProto.Message) string {
 	if msg == nil { return "" }
-	
-	// ہر ٹائپ کے لیے لاگ پرنٹ کریں تاکہ پتہ چلے واٹس ایپ کیا بھیج رہا ہے
-	if msg.Conversation != nil { 
-		fmt.Println("🔍 [Parser] Type: Simple Conversation")
-		return msg.GetConversation() 
-	}
-	if msg.ExtendedTextMessage != nil { 
-		fmt.Println("🔍 [Parser] Type: Extended Text (Reply/Link)")
-		return msg.ExtendedTextMessage.GetText() 
-	}
-	if msg.ImageMessage != nil { 
-		fmt.Println("🔍 [Parser] Type: Image Caption")
-		return msg.ImageMessage.GetCaption() 
-	}
-	if msg.VideoMessage != nil { 
-		fmt.Println("🔍 [Parser] Type: Video Caption")
-		return msg.VideoMessage.GetCaption() 
-	}
-	if msg.ViewOnceMessageV2 != nil { 
-		fmt.Println("🔍 [Parser] Type: ViewOnce Message")
-		return getDetailedText(msg.ViewOnceMessageV2.Message) 
-	}
-	
-	fmt.Printf("🔍 [Parser] Unknown or unsupported message type: %T\n", msg)
+	if msg.Conversation != nil { return msg.GetConversation() }
+	if msg.ExtendedTextMessage != nil { return msg.ExtendedTextMessage.GetText() }
+	if msg.ImageMessage != nil { return msg.ImageMessage.GetCaption() }
+	if msg.VideoMessage != nil { return msg.VideoMessage.GetCaption() }
 	return ""
 }
 
@@ -106,90 +86,98 @@ func eventHandler(evt interface{}) {
 	case *events.Message:
 		if v.Info.IsFromMe { return }
 
-		// تفصیلی لاگنگ: میسج کہاں سے آیا اور کیا ہے
-		sender := v.Info.Sender.User
-		body := strings.TrimSpace(getDetailedText(v.Message))
-		
-		fmt.Printf("📩 [New Message] From: %s | Text: '%s' | ChatID: %s\n", sender, body, v.Info.Chat)
+		body := strings.TrimSpace(getMessageText(v.Message))
+		fmt.Printf("📩 [Log] Incoming Message | From: %s | Text: %s\n", v.Info.Sender.User, body)
 
 		if body == "#menu" {
-			fmt.Printf("⚙️ [Action] Menu command detected! Sending response to %s\n", v.Info.Chat)
+			fmt.Println("⚙️ [Action] Command #menu identified.")
 			
-			// ری ایکشن بھیجیں
-			err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildReaction(v.Info.Chat, v.Info.Sender, v.Info.ID, "📜"))
-			if err != nil { fmt.Printf("⚠️ [Log] Reaction failed: %v\n", err) }
-
+			// ری ایکشن دیں
+			_, _ = client.SendMessage(context.Background(), v.Info.Chat, client.BuildReaction(v.Info.Chat, v.Info.Sender, v.Info.ID, "📜"))
+			
 			sendMenuWithImage(v.Info.Chat)
 		}
 	}
 }
 
-// مینیو بھیجنا (تصویر + بٹن + ٹیکسٹ)
 func sendMenuWithImage(chat types.JID) {
-	fmt.Println("🖼️ [Media] Reading pic.png for menu...")
+	fmt.Println("🖼️ [Media] Reading pic.png from ./web/ folder...")
 	imgData, err := os.ReadFile("./web/pic.png")
 	if err != nil {
-		fmt.Printf("❌ [File Error] Could not read pic.png: %v\n", err)
-		// اگر تصویر نہ ملے تو صرف ٹیکسٹ مینیو بھیجیں
-		client.SendMessage(context.Background(), chat, &waProto.Message{Conversation: proto.String("*IMPOSSIBLE MENU*\n\n(Image missing in web/ folder)")})
+		fmt.Printf("❌ [File Error] Failed to read pic.png: %v\n", err)
+		client.SendMessage(context.Background(), chat, &waProto.Message{Conversation: proto.String("*📜 MENU*\nImage file missing.")})
 		return
 	}
 
-	// بٹن سٹرکچر (List Message)
+	// واٹس ایپ سرور پر تصویر اپلوڈ کرنا
+	fmt.Println("📤 [Upload] Sending image to WhatsApp Media Servers...")
+	uploadResp, err := client.Upload(context.Background(), imgData, whatsmeow.MediaImage)
+	if err != nil {
+		fmt.Printf("❌ [Upload Error] Media upload failed: %v\n", err)
+		return
+	}
+
+	// لسٹ مینیو بٹن
 	listMsg := &waProto.ListMessage{
 		Title:       proto.String("IMPOSSIBLE BOT"),
-		Description: proto.String("Advanced Go Engine\nSelect a command below:"),
+		Description: proto.String("Select a command below:"),
 		ButtonText:  proto.String("MENU"),
 		ListType:    waProto.ListMessage_SINGLE_SELECT.Enum(),
 		Sections: []*waProto.ListMessage_Section{
 			{
-				Title: proto.String("COMMANDS"),
+				Title: proto.String("TOOLS"),
 				Rows: []*waProto.ListMessage_Row{
-					{Title: proto.String("Ping Status"), RowID: proto.String("ping"), Description: proto.String("Check Bot Speed")},
-					{Title: proto.String("User Info"), RowID: proto.String("id")},
+					{Title: proto.String("Ping Status"), RowID: proto.String("ping")},
+					{Title: proto.String("Check ID"), RowID: proto.String("id")},
 				},
 			},
 		},
 	}
 
-	// تصویر والا میسج جس کے کیپشن میں مینیو ہوگا
-	msg := &waProto.Message{
-		ImageMessage: &waProto.ImageMessage{
-			Mimetype:      proto.String("image/png"),
-			Caption:       proto.String("*📜 IMPOSSIBLE MENU*\n\nHi! I am alive. If buttons don't show below, it's a WhatsApp restriction on your account."),
-			ContentLength: proto.Uint64(uint64(len(imgData))),
-		},
-		ListMessage: listMsg, // بٹن بھی ساتھ اٹیچ کر دیے
+	// امیج میسج بنانا
+	imageMsg := &waProto.ImageMessage{
+		Mimetype:      proto.String("image/png"),
+		Caption:       proto.String("*📜 IMPOSSIBLE MENU*\n\nHi! Use the button below to see commands."),
+		Url:           &uploadResp.URL,
+		DirectPath:    &uploadResp.DirectPath,
+		MediaKey:      uploadResp.MediaKey,
+		FileEncSha256: uploadResp.FileEncSha256,
+		FileSha256:    uploadResp.FileSha256,
+		FileLength:    proto.Uint64(uint64(len(imgData))),
 	}
 
-	// تصویر کا ڈیٹا بھی ساتھ بھیجنا ضروری ہے
-	fmt.Println("📤 [Network] Sending Menu Bundle to WhatsApp...")
+	// مکمل میسج جس میں تصویر اور مینیو دونوں ہوں
+	msg := &waProto.Message{
+		ImageMessage: imageMsg,
+		ListMessage:  listMsg,
+	}
+
+	fmt.Println("📧 [Delivery] Sending full menu bundle...")
 	resp, sendErr := client.SendMessage(context.Background(), chat, msg)
 	
 	if sendErr != nil {
-		fmt.Printf("❌ [Send Error] Menu failed to deliver: %v\n", sendErr)
+		fmt.Printf("❌ [Send Error] Deliver failed: %v\n", sendErr)
 	} else {
-		fmt.Printf("✅ [Delivery] Menu sent successfully! MessageID: %s\n", resp.ID)
+		fmt.Printf("✅ [Delivery] Sent! Message ID: %s\n", resp.ID)
 	}
 }
 
-// پیرنگ API لاجک
 func handlePairAPI(c *gin.Context) {
 	var req struct{ Number string `json:"number"` }
 	c.BindJSON(&req)
 	cleanNum := strings.ReplaceAll(req.Number, "+", "")
 	
-	fmt.Printf("🧹 [Security] Fresh pairing request for: %s\n", cleanNum)
+	fmt.Printf("🧹 [Security] Fresh pairing for: %s\n", cleanNum)
 
 	devices, _ := container.GetAllDevices(context.Background())
 	for _, dev := range devices {
 		if dev.ID != nil && strings.Contains(dev.ID.User, cleanNum) {
 			container.DeleteDevice(context.Background(), dev)
-			fmt.Printf("🗑️ [Cleanup] Deleted existing session for %s\n", cleanNum)
 		}
 	}
 
 	newDevice := container.NewDevice()
+	if client.IsConnected() { client.Disconnect() }
 	client = whatsmeow.NewClient(newDevice, waLog.Stdout("Client", "INFO", true))
 	client.AddEventHandler(eventHandler)
 	client.Connect()
