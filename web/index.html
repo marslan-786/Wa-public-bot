@@ -2,74 +2,120 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Impossible Pairing Board</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background: #020617; color: white; font-family: sans-serif; }
-        .glass { background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; }
-        .neon-glow { box-shadow: 0 0 20px rgba(6, 182, 212, 0.2); }
+        body { background: #020617; color: white; margin: 0; padding: 0; overflow-x: hidden; }
+        .full-screen { min-height: 100vh; width: 100vw; display: flex; align-items: center; justify-content: center; }
+        .glass-panel { 
+            background: rgba(255, 255, 255, 0.02); 
+            backdrop-filter: blur(20px); 
+            border: 1px solid rgba(255, 255, 255, 0.1); 
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        @media (min-width: 768px) {
+            .glass-panel { width: 450px; height: auto; border-radius: 30px; padding: 40px; margin: 20px; }
+        }
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen p-6">
+<body class="full-screen">
 
-    <div id="app" class="glass p-8 w-full max-w-md text-center neon-glow">
-        <img src="pic.png" class="w-44 mx-auto mb-6 rounded-2xl border-2 border-cyan-500/30">
-        <h1 class="text-xl font-black tracking-widest text-cyan-400 mb-8">IMPOSSIBLE BOARD</h1>
+    <div id="main-container" class="glass-panel p-6 text-center">
+        <img src="pic.png" class="w-48 md:w-56 mb-8 rounded-3xl shadow-2xl border-2 border-cyan-500/20">
 
-        <div id="home-view" class="space-y-4">
-            <button onclick="showPage('pair-view')" class="w-full py-4 bg-cyan-600 rounded-xl font-bold hover:bg-cyan-500 transition-all">CONNECT NUMBER</button>
-            <button onclick="showPage('manage-view')" class="w-full py-4 bg-white/5 rounded-xl font-bold border border-white/10 hover:bg-white/10 transition-all">MANAGE NUMBERS</button>
+        <div id="home-view" class="w-full space-y-6">
+            <h1 class="text-2xl font-black tracking-[10px] text-cyan-400">IMPOSSIBLE</h1>
+            <div class="space-y-4">
+                <button onclick="showPage('connect-view')" class="w-full py-5 bg-cyan-600 rounded-2xl font-bold text-lg hover:bg-cyan-500 transition-all">CONNECT NUMBER</button>
+                <button onclick="showPage('manage-view')" class="w-full py-5 bg-white/5 rounded-2xl font-bold text-lg border border-white/10 hover:bg-white/10">MANAGE NUMBERS</button>
+            </div>
         </div>
 
-        <div id="pair-view" class="hidden space-y-4">
-            <input type="text" id="num-input" placeholder="+923027665767" class="w-full p-4 bg-black/40 border border-white/20 rounded-xl text-center text-xl focus:border-cyan-500 outline-none">
-            <button onclick="startPairing()" class="w-full py-4 bg-cyan-600 rounded-xl font-bold">CONNECT</button>
-            <div id="code-result" class="hidden p-4 bg-cyan-500/10 rounded-xl border border-cyan-500/30 mt-4">
-                <p class="text-xs text-cyan-400 uppercase mb-2">Pairing Code</p>
-                <div class="flex items-center justify-between px-4">
-                    <span id="pair-code" class="text-3xl font-mono font-bold tracking-tighter">---- ----</span>
-                    <button onclick="copyCode()" class="bg-white/10 p-2 rounded-lg text-sm">COPY</button>
+        <div id="connect-view" class="hidden w-full space-y-6">
+            <h2 class="text-xl font-bold text-gray-400 uppercase tracking-widest">Link Device</h2>
+            <input type="text" id="phone-num" placeholder="923027665767" class="w-full p-5 bg-black/60 border border-white/10 rounded-2xl text-center text-2xl font-mono focus:border-cyan-500 outline-none">
+            <button onclick="pairNow()" id="pair-btn" class="w-full py-5 bg-cyan-600 rounded-2xl font-bold text-lg">GENERATE CODE</button>
+            
+            <div id="code-box" class="hidden w-full p-6 bg-cyan-500/10 rounded-3xl border-2 border-dashed border-cyan-500/50">
+                <p class="text-[10px] text-cyan-400 font-bold mb-3 uppercase">Enter this in WhatsApp Linked Devices</p>
+                <div class="flex items-center justify-between">
+                    <span id="display-code" class="text-4xl font-mono font-black text-white tracking-tighter">---- ----</span>
+                    <button onclick="copyCode()" class="p-3 bg-white/10 rounded-xl hover:bg-white/20">📋</button>
                 </div>
             </div>
-            <button onclick="showPage('home-view')" class="text-sm text-gray-500 mt-4 underline">Back</button>
+            <button onclick="showPage('home-view')" class="text-gray-500 hover:text-white underline">← BACK</button>
         </div>
 
-        <div id="manage-view" class="hidden space-y-6 text-left">
-            <div class="p-5 bg-black/40 rounded-xl border border-white/10">
-                <p class="text-[10px] text-gray-500 uppercase tracking-widest">Active Bot</p>
-                <h2 class="text-lg font-bold text-cyan-400">+923027665767</h2>
-                <div class="grid grid-cols-2 gap-4 mt-4 text-xs">
-                    <div class="bg-white/5 p-2 rounded-lg">Uptime: <b id="uptime">5h 20m</b></div>
-                    <div class="bg-white/5 p-2 rounded-lg">Cmds: <b id="cmds">248</b></div>
+        <div id="manage-view" class="hidden w-full space-y-6 text-left">
+            <div class="p-6 bg-black/40 rounded-3xl border border-white/10">
+                <p class="text-[10px] text-cyan-500 font-bold uppercase tracking-widest mb-2">System Status</p>
+                <h2 class="text-2xl font-mono font-bold text-white mb-4">+923012345678</h2>
+                <div class="grid grid-cols-2 gap-3 text-xs">
+                    <div class="bg-white/5 p-3 rounded-xl text-gray-400">UPTIME:<br><b class="text-white">5H 22M</b></div>
+                    <div class="bg-white/5 p-3 rounded-xl text-gray-400">COMMANDS:<br><b class="text-white">248</b></div>
                 </div>
             </div>
-            <div class="flex gap-2">
-                <button class="flex-1 py-3 bg-green-500/20 text-green-400 rounded-xl border border-green-500/30 text-sm font-bold">RENEW SESSION</button>
-                <button class="flex-1 py-3 bg-red-500/20 text-red-400 rounded-xl border border-red-500/30 text-sm font-bold">DELETE NUMBER</button>
+            <div class="grid grid-cols-2 gap-4">
+                <button class="py-4 bg-green-500/10 text-green-400 rounded-2xl border border-green-500/20 font-bold text-xs uppercase">RENEW SESSION</button>
+                <button class="py-4 bg-red-500/10 text-red-500 rounded-2xl border border-red-500/20 font-bold text-xs uppercase">DELETE BOT</button>
             </div>
-            <button onclick="showPage('home-view')" class="w-full text-center text-sm text-gray-500">Back to Home</button>
+            <button onclick="showPage('home-view')" class="w-full text-center text-sm text-gray-600 underline">BACK TO HOME</button>
         </div>
 
-        <footer class="mt-12 text-[9px] text-gray-600 tracking-[3px] uppercase">
+        <footer class="mt-14 text-[9px] text-gray-600 tracking-[5px] uppercase font-bold">
             Development by Nothing Is Impossible &copy; 2025
         </footer>
     </div>
 
     <script>
         function showPage(id) {
-            ['home-view', 'pair-view', 'manage-view'].forEach(p => document.getElementById(p).classList.add('hidden'));
+            ['home-view', 'connect-view', 'manage-view'].forEach(p => document.getElementById(p).classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
         }
-        async function startPairing() {
-            const num = document.getElementById('num-input').value;
-            const res = await fetch('/api/pair', { method: 'POST', body: JSON.stringify({number: num}), headers: {'Content-Type': 'application/json'} });
-            const data = await res.json();
-            document.getElementById('pair-code').innerText = data.code;
-            document.getElementById('code-result').classList.remove('hidden');
+
+        async function pairNow() {
+            const num = document.getElementById('phone-num').value;
+            const btn = document.getElementById('pair-btn');
+            if(!num) return alert("Please enter number");
+            
+            btn.innerText = "GENERATING...";
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/pair', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ number: num })
+                });
+                
+                const result = await response.json();
+                
+                if (result.code) {
+                    document.getElementById('display-code').innerText = result.code;
+                    document.getElementById('code-box').classList.remove('hidden');
+                    btn.innerText = "CODE GENERATED";
+                } else {
+                    alert("Error: " + (result.error || "Failed to get code"));
+                    btn.innerText = "GENERATE CODE";
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                alert("Connection failed!");
+                btn.innerText = "GENERATE CODE";
+                btn.disabled = false;
+            }
         }
+
         function copyCode() {
-            navigator.clipboard.writeText(document.getElementById('pair-code').innerText);
-            alert('Code Copied!');
+            const code = document.getElementById('display-code').innerText;
+            navigator.clipboard.writeText(code);
+            alert("Pairing Code Copied!");
         }
     </script>
 </body>
