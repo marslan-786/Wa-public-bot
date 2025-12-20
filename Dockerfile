@@ -1,54 +1,51 @@
 FROM golang:1.24-alpine AS builder
 
-# ضروری ٹولز انسٹال کریں
+# 1. Install Tools
 RUN apk add --no-cache gcc musl-dev git sqlite-dev ffmpeg-dev
 
 WORKDIR /app
 
-# سارا کوڈ کاپی کریں (یہ اہم ہے)
+# 2. Copy Code
 COPY . .
 
-# پرانی فائلز ہٹا کر نیا ماڈیول شروع کریں (تاکہ کوئی پرانا کیش تنگ نہ کرے)
+# 3. Clean up old/conflicting files (IMPORTANT)
+RUN rm -f database.go || true
 RUN rm -f go.mod go.sum || true
+
+# 4. Init Module
 RUN go mod init impossible-bot
 
-# تمام ضروری لائبریریز ڈاؤن لوڈ کریں
-# 1. WhatsApp Library
+# 5. Download Libraries
 RUN go get go.mau.fi/whatsmeow@latest
-# 2. MongoDB Libraries
 RUN go get go.mongodb.org/mongo-driver/mongo@latest
 RUN go get go.mongodb.org/mongo-driver/bson@latest
-# 3. Web Framework & Database Drivers
 RUN go get github.com/gin-gonic/gin@latest
 RUN go get github.com/mattn/go-sqlite3@latest
 RUN go get github.com/lib/pq@latest
-# 4. WebSocket Library (For Realtime UI)
 RUN go get github.com/gorilla/websocket@latest
 
-# موڈ ٹائیڈی کریں
+# 6. Tidy & Build
 RUN go mod tidy
-
-# ایپ بلڈ کریں
 RUN go build -o bot .
 
 # -------------------
-# فائنل سٹیج
+# Final Stage
 # -------------------
 FROM alpine:latest
 
-# رن ٹائم کے پیکجز
+# 7. Runtime Dependencies
 RUN apk add --no-cache ca-certificates sqlite-libs ffmpeg
 
 WORKDIR /app
 
-# بلڈر سے فائلز کاپی کریں
+# 8. Copy Artifacts
 COPY --from=builder /app/bot .
 COPY --from=builder /app/web ./web
 
-# اگر pic.png روٹ میں ہے تو اسے بھی کاپی کریں (ورنہ ایرر نہیں دے گا)
-COPY --from=builder /app/pic.png ./pic.png || true 
+# چونکہ pic.png روٹ میں موجود ہے، اسے سیدھا کاپی کریں (|| true ہٹا دیا ہے)
+COPY --from=builder /app/pic.png ./pic.png
 
-# انوائرمنٹ اور پورٹ
+# 9. Environment & Start
 ENV PORT=8080
 EXPOSE 8080
 
