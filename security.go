@@ -22,39 +22,32 @@ func checkSecurity(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
+	// ✅ Admin bypass check
+	if s.AntilinkAdmin && isAdmin(client, v.Info.Chat, v.Info.Sender) {
+		return
+	}
+
 	// Anti-link check
 	if s.Antilink && containsLink(getText(v.Message)) {
-		if s.AntilinkAdmin && isAdmin(client, v.Info.Chat, v.Info.Sender) {
-			return
-		}
-		takeSecurityAction(client, v, s.AntilinkAction, "Link detected")
+		takeSecurityAction(client, v, s, s.AntilinkAction, "Link detected")
 		return
 	}
 
 	// Anti-picture check
 	if s.AntiPic && v.Message.ImageMessage != nil {
-		if s.AntilinkAdmin && isAdmin(client, v.Info.Chat, v.Info.Sender) {
-			return
-		}
-		takeSecurityAction(client, v, "delete", "Image not allowed")
+		takeSecurityAction(client, v, s, "delete", "Image not allowed")
 		return
 	}
 
 	// Anti-video check
 	if s.AntiVideo && v.Message.VideoMessage != nil {
-		if s.AntilinkAdmin && isAdmin(client, v.Info.Chat, v.Info.Sender) {
-			return
-		}
-		takeSecurityAction(client, v, "delete", "Video not allowed")
+		takeSecurityAction(client, v, s, "delete", "Video not allowed")
 		return
 	}
 
 	// Anti-sticker check
 	if s.AntiSticker && v.Message.StickerMessage != nil {
-		if s.AntilinkAdmin && isAdmin(client, v.Info.Chat, v.Info.Sender) {
-			return
-		}
-		takeSecurityAction(client, v, "delete", "Sticker not allowed")
+		takeSecurityAction(client, v, s, "delete", "Sticker not allowed")
 		return
 	}
 }
@@ -81,21 +74,37 @@ func containsLink(text string) bool {
 	return false
 }
 
-func takeSecurityAction(client *whatsmeow.Client, v *events.Message, action, reason string) {
+// ✅ UPDATED: Direct action لے، fail ہو تو error message دے
+func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSettings, action, reason string) {
 	switch action {
 	case "delete":
-		// ✅ FIXED: Use RevokeMessage instead of DeleteMessage
-		client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
-		msg := fmt.Sprintf(`╔═══════════════════════════╗
-║   🚫 MESSAGE DELETED        ║
-╠═══════════════════════════╣
-║                           ║
-║  ⚠️ *Reason:*              ║
-║     %s                    ║
-║                           ║
-║  👤 *User:* @%s           ║
-║                           ║
-╚═══════════════════════════╝`, reason, v.Info.Sender.User)
+		// ✅ Direct delete - fail ہو تو error catch کرے
+		_, err := client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
+		if err != nil {
+			msg := `╔══════════════════════╗
+║     ❌ ACTION FAILED          
+╠══════════════════════╣
+║                           
+║  ⚠️ Bot needs admin rights
+║     to delete messages    
+║                           
+║  👑 Please make bot admin 
+║                           
+╚═══════════════════════╝`
+			replyMessage(client, v, msg)
+			return
+		}
+
+		msg := fmt.Sprintf(`╔════════════════════╗
+║   🚫 MESSAGE DELETED        
+╠════════════════════╣
+║                           
+║  ⚠️ *Reason:*              
+║     %s                    
+║                           
+║  👤 *User:* @%s           
+║                           
+╚════════════════════╝`, reason, v.Info.Sender.User)
 		
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			ExtendedTextMessage: &waProto.ExtendedTextMessage{
@@ -107,22 +116,44 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, action, rea
 		})
 
 	case "deletekick":
-		// ✅ FIXED: Use RevokeMessage instead of DeleteMessage
-		client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
-		client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
+		// ✅ Delete first
+		_, err := client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
+		if err != nil {
+			msg := `╔═══════════════════╗
+║   ❌ ACTION FAILED          
+╠═══════════════════╣
+║  Bot needs admin rights   
+╚═══════════════════╝`
+			replyMessage(client, v, msg)
+			return
+		}
+
+		// ✅ Then kick
+		_, err = client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
 			[]types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
 		
-		msg := fmt.Sprintf(`╔═══════════════════════════╗
-║   👢 USER KICKED            ║
-╠═══════════════════════════╣
-║                           ║
-║  ⚠️ *Reason:*              ║
-║     %s                    ║
-║                           ║
-║  👤 *User:* @%s           ║
-║  🗑️ *Action:* Delete + Kick║
-║                           ║
-╚═══════════════════════════╝`, reason, v.Info.Sender.User)
+		if err != nil {
+			msg := `╔═══════════════════╗
+║   ⚠️ KICK FAILED            
+╠═══════════════════╣
+║  Bot needs admin rights   
+║  to remove members        
+╚═══════════════════╝`
+			replyMessage(client, v, msg)
+			return
+		}
+		
+		msg := fmt.Sprintf(`╔═════════════════════╗
+║      👢 USER KICKED            
+╠═════════════════════╣
+║                           
+║  ⚠️ *Reason:*              
+║     %s                    
+║                           
+║  👤 *User:* @%s           
+║  🗑️ *Action:* Delete + Kick
+║                           
+╚══════════════════════╝`, reason, v.Info.Sender.User)
 		
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			ExtendedTextMessage: &waProto.ExtendedTextMessage{
@@ -134,30 +165,48 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, action, rea
 		})
 
 	case "deletewarn":
-		s := getGroupSettings(v.Info.Chat.String())
 		senderKey := v.Info.Sender.String()
-
 		s.Warnings[senderKey]++
 		warnCount := s.Warnings[senderKey]
 
-		// ✅ FIXED: Use RevokeMessage instead of DeleteMessage
-		client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
+		// ✅ Delete message
+		_, err := client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
+		if err != nil {
+			msg := `╔═══════════════════╗
+║   ❌ ACTION FAILED          
+╠═══════════════════╣
+║  Bot needs admin rights   
+╚═══════════════════╝`
+			replyMessage(client, v, msg)
+			return
+		}
 
 		if warnCount >= 3 {
-			client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
+			_, err := client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
 				[]types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
+			
+			if err != nil {
+				msg := `╔══════════════════╗
+║   ⚠️ KICK FAILED            
+╠══════════════════╣
+║  Bot needs admin rights   
+╚══════════════════╝`
+				replyMessage(client, v, msg)
+				return
+			}
+
 			delete(s.Warnings, senderKey)
 			
-			msg := fmt.Sprintf(`╔═══════════════════════════╗
-║   🚫 USER KICKED (3 WARNS)  ║
-╠═══════════════════════════╣
-║                           ║
-║  👤 *User:* @%s           ║
-║  ⚠️ *Final Warning:* 3/3  ║
-║                           ║
-║  🔨 *Action:* Kicked Out  ║
-║                           ║
-╚═══════════════════════════╝`, v.Info.Sender.User)
+			msg := fmt.Sprintf(`╔════════════════════╗
+║      🚫 USER KICKED   
+╠════════════════════╣
+║                           
+║  👤 *User:* @%s           
+║  ⚠️ *Final Warning:* 3/3  
+║                           
+║  🔨 *Action:* Kicked Out  
+║                           
+╚════════════════════╝`, v.Info.Sender.User)
 			
 			client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 				ExtendedTextMessage: &waProto.ExtendedTextMessage{
@@ -348,5 +397,119 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message, state *Set
 			actionText)
 
 		replyMessage(client, v, msg)
+	}
+}
+
+// ==================== GROUP EVENTS HANDLER ====================
+func handleGroupEvents(client *whatsmeow.Client, evt interface{}) {
+	switch v := evt.(type) {
+	case *events.GroupInfo:
+		handleGroupInfoChange(client, v)
+	}
+}
+
+func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
+	if v.JID == nil {
+		return
+	}
+
+	// ✅ Promote event
+	if v.Promote != nil && len(v.Promote) > 0 {
+		for _, promoted := range v.Promote {
+			msg := fmt.Sprintf(`╔═══════════════════════════╗
+║   👑 ADMIN PROMOTED         ║
+╠═══════════════════════════╣
+║                           ║
+║  👤 *New Admin:*          ║
+║     @%s                   ║
+║                           ║
+║  🎉 *Congratulations!*    ║
+║                           ║
+╚═══════════════════════════╝`, promoted.User)
+
+			client.SendMessage(context.Background(), *v.JID, &waProto.Message{
+				ExtendedTextMessage: &waProto.ExtendedTextMessage{
+					Text: &msg,
+					ContextInfo: &waProto.ContextInfo{
+						MentionedJID: []string{promoted.String()},
+					},
+				},
+			})
+		}
+	}
+
+	// ✅ Demote event
+	if v.Demote != nil && len(v.Demote) > 0 {
+		for _, demoted := range v.Demote {
+			msg := fmt.Sprintf(`╔═══════════════════════════╗
+║   👤 ADMIN DEMOTED          ║
+╠═══════════════════════════╣
+║                           ║
+║  👤 *User:*               ║
+║     @%s                   ║
+║                           ║
+║  📉 *Removed from Admins* ║
+║                           ║
+╚═══════════════════════════╝`, demoted.User)
+
+			client.SendMessage(context.Background(), *v.JID, &waProto.Message{
+				ExtendedTextMessage: &waProto.ExtendedTextMessage{
+					Text: &msg,
+					ContextInfo: &waProto.ContextInfo{
+						MentionedJID: []string{demoted.String()},
+					},
+				},
+			})
+		}
+	}
+
+	// ✅ Join event
+	if v.Join != nil && len(v.Join) > 0 {
+		for _, joined := range v.Join {
+			msg := fmt.Sprintf(`╔═══════════════════════════╗
+║   👋 MEMBER JOINED          ║
+╠═══════════════════════════╣
+║                           ║
+║  👤 *Welcome:*            ║
+║     @%s                   ║
+║                           ║
+║  🎉 *Welcome to the group!*║
+║                           ║
+╚═══════════════════════════╝`, joined.User)
+
+			client.SendMessage(context.Background(), *v.JID, &waProto.Message{
+				ExtendedTextMessage: &waProto.ExtendedTextMessage{
+					Text: &msg,
+					ContextInfo: &waProto.ContextInfo{
+						MentionedJID: []string{joined.String()},
+					},
+				},
+			})
+		}
+	}
+
+	// ✅ Leave/Remove event
+	if v.Leave != nil && len(v.Leave) > 0 {
+		for _, left := range v.Leave {
+			msg := fmt.Sprintf(`╔═══════════════════════════╗
+║   👋 MEMBER LEFT            ║
+╠═══════════════════════════╣
+║                           ║
+║  👤 *User:*               ║
+║     @%s                   ║
+║                           ║
+║  👋 *Left the group*      ║
+║                           ║
+╚═══════════════════════════╝`, left.User)
+
+			client.SendMessage(context.Background(), *v.JID, &waProto.Message{
+				ExtendedTextMessage: &waProto.ExtendedTextMessage{
+					Text: &msg,
+					ContextInfo: &waProto.ContextInfo{
+						MentionedJID: []string{left.String()},
+					},
+				},
+			})
+		}
 	}
 }

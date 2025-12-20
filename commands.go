@@ -18,6 +18,8 @@ func handler(client *whatsmeow.Client, evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
 		go processMessage(client, v)
+	case *events.GroupInfo:
+		go handleGroupInfoChange(client, v)  // ✅ NEW
 	}
 }
 
@@ -435,11 +437,15 @@ func getLIDNumber(jid *types.JID) string {
 		return "unknown"
 	}
 	
-	// ✅ CRITICAL: ToNonAD() استعمال کریں - یہ LID return کرتا ہے
-	lid := jid.ToNonAD()
+	// ✅ CRITICAL FIX: پہلے ToNonAD() سے LID لو، پھر User نکالو
+	lidJID := jid.ToNonAD()
 	
-	// ✅ اب LID.User سے نمبر نکالیں
-	return extractPhoneFromLID(lid.User)
+	// ✅ Debug: دیکھیں کیا نکل رہا ہے
+	fmt.Printf("   JID Input: %s\n", jid.String())
+	fmt.Printf("   LID Output: %s\n", lidJID.String())
+	fmt.Printf("   LID.User: %s\n", lidJID.User)
+	
+	return extractPhoneFromLID(lidJID.User)
 }
 
 // ✅ LID User سے صرف نمبر extract کرنا
