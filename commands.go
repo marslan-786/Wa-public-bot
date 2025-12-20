@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -73,8 +75,7 @@ var (
 func handler(client *whatsmeow.Client, evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
-		// FIXED: Removed 'IsFromMe' check so bot replies to itself
-		go processMessage(client, v) // Run in Goroutine for speed
+		go processMessage(client, v)
 	}
 }
 
@@ -93,7 +94,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	if chatID == "status@broadcast" {
 		dataMutex.RLock()
 		if data.AutoStatus {
-			// Logic simplified for speed
 			client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender, types.ReceiptTypeRead)
 			if data.StatusReact {
 				emojis := []string{"💚", "❤️", "🔥", "😍", "💯"}
@@ -125,7 +125,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	prefix := data.Prefix
 	dataMutex.RUnlock()
 
-	// Allow command usage without prefix if it's exact match like 'menu' or 'ping'
 	cmd := strings.ToLower(body)
 	args := []string{}
 	
@@ -136,7 +135,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			args = split[1:]
 		}
 	} else {
-		// Support non-prefixed basic commands
 		split := strings.Fields(cmd)
 		if len(split) > 0 {
 			cmd = split[0]
@@ -144,11 +142,9 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// Permission Check
 	if !canExecute(client, v, cmd) { return }
 
 	fullArgs := strings.Join(args, " ")
-
 	fmt.Printf("📩 CMD: %s | Chat: %s\n", cmd, v.Info.Chat.User)
 
 	switch cmd {
@@ -171,7 +167,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "data":
 		reply(client, v.Info.Chat, "📂 Data is safe in MongoDB.")
 
-	// Settings
 	case "alwaysonline": toggleGlobal(client, v, "alwaysonline")
 	case "autoread": toggleGlobal(client, v, "autoread")
 	case "autoreact": toggleGlobal(client, v, "autoreact")
@@ -193,7 +188,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			reply(client, v.Info.Chat, makeCard("SETTINGS", "✅ Prefix updated: "+args[0]))
 		}
 	
-	// Group
 	case "mode": handleMode(client, v, args)
 	case "antilink": startSecuritySetup(client, v, "antilink")
 	case "antipic": startSecuritySetup(client, v, "antipic")
@@ -209,7 +203,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "group": handleGroupCmd(client, v.Info.Chat, args, isGroup)
 	case "del", "delete": deleteMsg(client, v.Info.Chat, v.Message)
 
-	// Downloaders & Tools
 	case "tiktok", "tt": dlTikTok(client, v.Info.Chat, fullArgs, v.Message, v.Info.ID)
 	case "fb", "facebook": dlFacebook(client, v.Info.Chat, fullArgs, v.Message, v.Info.ID)
 	case "insta", "ig": dlInstagram(client, v.Info.Chat, fullArgs, v.Message, v.Info.ID)
@@ -232,13 +225,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 // --- 🛠️ HELPER FUNCTIONS ---
 
 func react(client *whatsmeow.Client, chat types.JID, msgID types.MessageID, emoji string) {
-	// FIXED: Reaction Logic
 	client.SendMessage(context.Background(), chat, &waProto.Message{
 		ReactionMessage: &waProto.ReactionMessage{
 			Key: &waProto.MessageKey{
 				RemoteJid: proto.String(chat.String()),
 				Id:        proto.String(msgID),
-				FromMe:    proto.Bool(true), // Or false if replying to others
+				FromMe:    proto.Bool(true),
 			},
 			Text: proto.String(emoji),
 			SenderTimestampMs: proto.Int64(time.Now().UnixMilli()),
@@ -255,7 +247,7 @@ func sendMenu(client *whatsmeow.Client, chat types.JID) {
 	s := getGroupSettings(chat.String())
 	currentMode := strings.ToUpper(s.Mode)
 	if !strings.Contains(chat.String(), "@g.us") {
-		currentMode = "PUBLIC"
+		currentMode = "PRIVATE"
 	}
 	
 	menu := makeCard("⋆ BOT ⋆", fmt.Sprintf(`
@@ -350,7 +342,6 @@ func sendMenu(client *whatsmeow.Client, chat types.JID) {
 
 func sendPing(client *whatsmeow.Client, chat types.JID) {
 	start := time.Now()
-	// Simulate tiny delay
 	time.Sleep(10 * time.Millisecond)
 	ms := time.Since(start).Milliseconds()
 	uptime := time.Since(startTime).Round(time.Second)
@@ -390,6 +381,96 @@ func sendID(client *whatsmeow.Client, v *events.Message) {
 	})
 }
 
+func startSecuritySetup(client *whatsmeow.Client, v *events.Message, secType string) {
+	if !v.Info.IsGroup || !isAdmin(client, v.Info.Chat, v.Info.Sender) { return }
+	setupMap[v.Info.Sender.String()] = &SetupState{Type: secType, Stage: 1, GroupID: v.Info.Chat.String(), User: v.Info.Sender.String()}
+	reply(client, v.Info.Chat, makeCard(strings.ToUpper(secType)+" SETUP (1/2)", "🛡️ *Allow Admin?*\n\nType *Yes* or *No*"))
+}
+
+func handleSetupResponse(client *whatsmeow.Client, v *events.Message, state *SetupState) {
+	txt := strings.ToLower(getText(v.Message))
+	s := getGroupSettings(state.GroupID)
+
+	if state.Stage == 1 {
+		if txt == "yes" { s.AntilinkAdmin = true } else if txt == "no" { s.AntilinkAdmin = false } else { return }
+		state.Stage = 2
+		reply(client, v.Info.Chat, makeCard("ACTION SETUP (2/2)", "⚡ *Choose Action:*\n\n*Delete*\n*Kick*\n*Warn*"))
+		return
+	}
+
+	if state.Stage == 2 {
+		if strings.Contains(txt, "kick") { s.AntilinkAction = "kick" } else if strings.Contains(txt, "warn") { s.AntilinkAction = "warn" } else { s.AntilinkAction = "delete" }
+		switch state.Type {
+		case "antilink": s.Antilink = true
+		case "antipic": s.AntiPic = true
+		case "antivideo": s.AntiVideo = true
+		case "antisticker": s.AntiSticker = true
+		}
+		saveGroupSettings(s)
+		delete(setupMap, state.User)
+		reply(client, v.Info.Chat, makeCard("✅ "+strings.ToUpper(state.Type)+" ENABLED", fmt.Sprintf("👑 Admin Allow: %v\n⚡ Action: %s", s.AntilinkAdmin, strings.ToUpper(s.AntilinkAction))))
+	}
+}
+
+func checkSecurity(client *whatsmeow.Client, v *events.Message) {
+	s := getGroupSettings(v.Info.Chat.String())
+	txt := getText(v.Message)
+	isViolating := false
+
+	if s.Antilink && (strings.Contains(txt, "chat.whatsapp.com") || strings.Contains(txt, "http")) { isViolating = true }
+	if s.AntiPic && v.Message.ImageMessage != nil { isViolating = true }
+	if s.AntiVideo && v.Message.VideoMessage != nil { isViolating = true }
+	if s.AntiSticker && v.Message.StickerMessage != nil { isViolating = true }
+
+	if isViolating {
+		if s.AntilinkAdmin && isAdmin(client, v.Info.Chat, v.Info.Sender) { return }
+		
+		client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
+		
+		if s.AntilinkAction == "kick" {
+			client.UpdateGroupParticipants(context.Background(), v.Info.Chat, []types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
+		} else if s.AntilinkAction == "warn" {
+			s.Warnings[v.Info.Sender.String()]++
+			saveGroupSettings(s)
+			if s.Warnings[v.Info.Sender.String()] >= 3 {
+				client.UpdateGroupParticipants(context.Background(), v.Info.Chat, []types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
+				delete(s.Warnings, v.Info.Sender.String())
+				client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{Conversation: proto.String("🚫 Limit Reached. Kicked.")})
+			} else {
+				client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{Conversation: proto.String(fmt.Sprintf("⚠️ Warning %d/3", s.Warnings[v.Info.Sender.String()]))})
+			}
+		}
+	}
+}
+
+func handleGroupCmd(client *whatsmeow.Client, chat types.JID, args []string, isGroup bool) {
+	if !isGroup || len(args) == 0 { return }
+	switch args[0] {
+	case "close": client.SetGroupAnnounce(context.Background(), chat, true); reply(client, chat, "🔒 Group Closed")
+	case "open": client.SetGroupAnnounce(context.Background(), chat, false); reply(client, chat, "🔓 Group Opened")
+	case "link":
+		code, _ := client.GetGroupInviteLink(context.Background(), chat, false)
+		reply(client, chat, "🔗 https://chat.whatsapp.com/"+code)
+	case "revoke":
+		client.GetGroupInviteLink(context.Background(), chat, true)
+		reply(client, chat, "🔄 Link Revoked")
+	}
+}
+
+func stickerToVideo(client *whatsmeow.Client, chat types.JID, msg *waProto.Message, id types.MessageID) {
+	react(client, chat, id, "🎥")
+	data, err := downloadMedia(client, msg)
+	if err != nil { return }
+	ioutil.WriteFile("in.webp", data, 0644)
+	exec.Command("ffmpeg", "-y", "-i", "in.webp", "out.mp4").Run()
+	d, _ := ioutil.ReadFile("out.mp4")
+	up, _ := client.Upload(context.Background(), d, whatsmeow.MediaVideo)
+	client.SendMessage(context.Background(), chat, &waProto.Message{VideoMessage: &waProto.VideoMessage{
+		URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+		FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256, Mimetype: proto.String("video/mp4"),
+	}})
+}
+
 // --- REST OF THE LOGIC ---
 
 func toggleGlobal(client *whatsmeow.Client, v *events.Message, key string) {
@@ -423,7 +504,6 @@ func dlTikTok(client *whatsmeow.Client, chat types.JID, url string, msg *waProto
 	if r.Data.Play != "" { sendVideo(client, chat, r.Data.Play, "TikTok") }
 }
 
-// Helper Functions
 func loadDataFromMongo() {
 	if mongoColl == nil { return }
 	res := mongoColl.FindOne(context.Background(), bson.M{"_id": "global"})
@@ -507,7 +587,6 @@ func handleMode(client *whatsmeow.Client, v *events.Message, args []string) {
 	reply(client, v.Info.Chat, makeCard("MODE CHANGED", "🔒 Mode: "+strings.ToUpper(s.Mode)))
 }
 
-// ... (Other Downloaders - kept same logic but updated signature for ID passing)
 func dlFacebook(client *whatsmeow.Client, chat types.JID, url string, msg *waProto.Message, id types.MessageID) {
 	react(client, chat, id, "📘"); type R struct { BK9 struct { HD string `json:"HD"` } `json:"BK9"`; Status bool `json:"status"` }; var r R; getJson("https://bk9.fun/downloader/facebook?url="+url, &r)
 	if r.Status { sendVideo(client, chat, r.BK9.HD, "FB") }
@@ -561,7 +640,6 @@ func groupAdd(client *whatsmeow.Client, chat types.JID, args []string, isGroup b
 func groupAction(client *whatsmeow.Client, chat types.JID, msg *waProto.Message, action string, isGroup bool) { if !isGroup { return }; target := getTarget(msg); if target == nil { return }; var c whatsmeow.ParticipantChange; if action == "remove" { c = whatsmeow.ParticipantChangeRemove } else if action == "promote" { c = whatsmeow.ParticipantChangePromote } else { c = whatsmeow.ParticipantChangeDemote }; client.UpdateGroupParticipants(context.Background(), chat, []types.JID{*target}, c) }
 func groupTagAll(client *whatsmeow.Client, chat types.JID, text string, isGroup bool) { if !isGroup { return }; info, _ := client.GetGroupInfo(context.Background(), chat); mentions := []string{}; out := "📣 *TAG ALL*\n" + text + "\n"; for _, p := range info.Participants { mentions = append(mentions, p.JID.String()); out += "@" + p.JID.User + "\n" }; client.SendMessage(context.Background(), chat, &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(out), ContextInfo: &waProto.ContextInfo{MentionedJID: mentions}}}) }
 func groupHideTag(client *whatsmeow.Client, chat types.JID, text string, isGroup bool) { if !isGroup { return }; info, _ := client.GetGroupInfo(context.Background(), chat); mentions := []string{}; for _, p := range info.Participants { mentions = append(mentions, p.JID.String()) }; client.SendMessage(context.Background(), chat, &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(text), ContextInfo: &waProto.ContextInfo{MentionedJID: mentions}}}) }
-func deleteMsg(client *whatsmeow.Client, chat types.JID, msg *waProto.Message) { if msg.ExtendedTextMessage == nil { return }; ctx := msg.ExtendedTextMessage.ContextInfo; if ctx == nil { return }; client.RevokeMessage(context.Background(), chat, *ctx.StanzaID) }
 func manageStatusList(client *whatsmeow.Client, v *events.Message, args []string, action string) {
 	if !isOwner(client, v.Info.Sender) { return }
 	dataMutex.Lock()
@@ -584,3 +662,4 @@ func sendOwner(client *whatsmeow.Client, chat types.JID, sender types.JID) {
 	reply(client, chat, makeCard("OWNER VERIFICATION", fmt.Sprintf("🤖 Bot: %s\n👤 You: %s\n\n%s", client.Store.ID.User, sender.User, res)))
 }
 func getTarget(m *waProto.Message) *types.JID { if m.ExtendedTextMessage == nil { return nil }; c := m.ExtendedTextMessage.ContextInfo; if c == nil { return nil }; if len(c.MentionedJID) > 0 { j, _ := types.ParseJID(c.MentionedJID[0]); return &j }; if c.Participant != nil { j, _ := types.ParseJID(*c.Participant); return &j }; return nil }
+func deleteMsg(client *whatsmeow.Client, chat types.JID, msg *waProto.Message) { if msg.ExtendedTextMessage == nil { return }; ctx := msg.ExtendedTextMessage.ContextInfo; if ctx == nil { return }; client.RevokeMessage(context.Background(), chat, *ctx.StanzaID) }
