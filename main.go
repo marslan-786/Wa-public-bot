@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
+
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/store"
@@ -19,98 +20,132 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+
 	"google.golang.org/protobuf/proto"
 )
 
-var client *whatsmeow.Client
-var container *sqlstore.Container
+var (
+	client    *whatsmeow.Client
+	container *sqlstore.Container
+)
 
-const BOT_TAG = "IMPOSSIBLE_STABLE_V1"
-const DEVELOPER = "Nothing Is Impossible"
+const (
+	BOT_JID_USER = "impossible-bot-v1"
+	DEVELOPER    = "Nothing Is Impossible"
+)
 
 func main() {
-	fmt.Println("🚀 [System] Impossible Bot: Starting Final Stable Version...")
+	fmt.Println("🚀 Impossible Bot starting (Railway + Postgres Safe)")
+
+	ctx := context.Background()
 
 	dbURL := os.Getenv("DATABASE_URL")
 	dbType := "postgres"
-	if dbURL == "" { dbType = "sqlite3"; dbURL = "file:impossible.db?_foreign_keys=on" }
+	if dbURL == "" {
+		dbType = "sqlite3"
+		dbURL = "file:impossible.db?_foreign_keys=on"
+	}
 
 	var err error
-	container, err = sqlstore.New(context.Background(), dbType, dbURL, waLog.Stdout("Database", "INFO", true))
-	if err != nil { panic(err) }
+	container, err = sqlstore.New(ctx, dbType, dbURL, waLog.Stdout("DB", "INFO", true))
+	if err != nil {
+		panic(err)
+	}
 
-	// سیشن آئسولیشن
-	var targetDevice *store.Device
-	devices, _ := container.GetAllDevices(context.Background())
-	for _, dev := range devices {
-		if dev.PushName == BOT_TAG {
-			targetDevice = dev
+	// ✅ Stable device identity
+	var device *store.Device
+	devices, _ := container.GetAllDevices(ctx)
+
+	for _, d := range devices {
+		if d.ID != nil && d.ID.User == BOT_JID_USER {
+			device = d
 			break
 		}
 	}
 
-	if targetDevice == nil {
-		targetDevice = container.NewDevice()
-		targetDevice.PushName = BOT_TAG
+	if device == nil {
+		device = container.NewDevice()
+		device.ID = &types.JID{
+			User:   BOT_JID_USER,
+			Server: "s.whatsapp.net",
+		}
 	}
 
-	client = whatsmeow.NewClient(targetDevice, waLog.Stdout("Client", "INFO", true))
+	client = whatsmeow.NewClient(device, waLog.Stdout("Client", "INFO", true))
 	client.AddEventHandler(eventHandler)
 
-	if client.Store.ID != nil { client.Connect() }
+	// ✅ Always connect (WhatsMeow handles restore)
+	go client.Connect()
 
+	// ---------- HTTP ----------
 	port := os.Getenv("PORT")
-	if port == "" { port = "8080" }
+	if port == "" {
+		port = "8080"
+	}
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
-	r.StaticFile("/", "./web/index.html")
 	r.POST("/api/pair", handlePairAPI)
-
 	go r.Run(":" + port)
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
+	// ---------- Shutdown ----------
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	<-ch
+
 	client.Disconnect()
 }
 
+// ---------- MESSAGE ----------
+
 func getBody(msg *waProto.Message) string {
-	if msg == nil { return "" }
-	if msg.Conversation != nil { return msg.GetConversation() }
-	if msg.ExtendedTextMessage != nil { return msg.ExtendedTextMessage.GetText() }
+	if msg == nil {
+		return ""
+	}
+	if msg.Conversation != nil {
+		return msg.GetConversation()
+	}
+	if msg.ExtendedTextMessage != nil {
+		return msg.ExtendedTextMessage.GetText()
+	}
 	return ""
 }
 
 func eventHandler(evt interface{}) {
 	switch v := evt.(type) {
-	case *events.Message:
-		if v.Info.IsFromMe { return }
-		body := strings.TrimSpace(strings.ToLower(getBody(v.Message)))
-		
-		fmt.Printf("📩 [MSG] From: %s | Text: %s\n", v.Info.Sender.User, body)
 
-		if body == "#menu" {
-			_, _ = client.SendMessage(context.Background(), v.Info.Chat, client.BuildReaction(v.Info.Chat, v.Info.Sender, v.Info.ID, "📜"))
-			sendOfficialListMenu(v.Info.Chat)
+	case *events.Message:
+		if v.Info.IsFromMe {
+			return
 		}
 
-		if body == "#ping" {
+		body := strings.TrimSpace(strings.ToLower(getBody(v.Message)))
+		fmt.Println("📩", v.Info.Sender.User, body)
+
+		switch body {
+		case "#menu":
+			sendOfficialListMenu(v.Info.Chat)
+
+		case "#ping":
 			start := time.Now()
-			_, _ = client.SendMessage(context.Background(), v.Info.Chat, client.BuildReaction(v.Info.Chat, v.Info.Sender, v.Info.ID, "⚡"))
 			latency := time.Since(start)
-			res := fmt.Sprintf("🚀 *IMPOSSIBLE PING*\n\nLatency: `%s`\nDev: _%s_", latency.String(), DEVELOPER)
-			client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{Conversation: proto.String(res)})
+			text := fmt.Sprintf(
+				"🚀 *IMPOSSIBLE PING*\n\nLatency: `%s`\nDev: _%s_",
+				latency,
+				DEVELOPER,
+			)
+			client.SendMessage(context.Background(), v.Info.Chat,
+				&waProto.Message{Conversation: proto.String(text)})
 		}
 	}
 }
 
-func sendOfficialListMenu(chat types.JID) {
-	fmt.Println("📤 [Action] Sending Protobuf-Compatible List Menu...")
+// ---------- LIST MENU ----------
 
-	// فکسڈ: RowID (بڑے حروف میں) اور لسٹ میسج کا صحیح اسٹرکچر
-	listMsg := &waProto.ListMessage{
+func sendOfficialListMenu(chat types.JID) {
+	list := &waProto.ListMessage{
 		Title:       proto.String("IMPOSSIBLE MENU"),
-		Description: proto.String("نیچے دیے گئے بٹن پر کلک کر کے آپشنز دیکھیں 👇"),
+		Description: proto.String("نیچے بٹن دبائیں 👇"),
 		ButtonText:  proto.String("Open Menu"),
 		ListType:    waProto.ListMessage_SINGLE_SELECT.Enum(),
 		Sections: []*waProto.ListMessage_Section{
@@ -118,57 +153,55 @@ func sendOfficialListMenu(chat types.JID) {
 				Title: proto.String("BOT FEATURES"),
 				Rows: []*waProto.ListMessage_Row{
 					{
-						RowID:       proto.String("ping_row"), // فکسڈ: RowID
+						RowID:       proto.String("ping_row"),
 						Title:       proto.String("Check Speed"),
-						Description: proto.String("Get current server latency"),
+						Description: proto.String("Server latency"),
 					},
 					{
 						RowID:       proto.String("id_row"),
 						Title:       proto.String("User Info"),
-						Description: proto.String("Get your JID details"),
+						Description: proto.String("Your JID details"),
 					},
 				},
 			},
 		},
 	}
 
-	// فکسڈ: SendMessage اب دو ویلیوز ریٹرن کرتا ہے
 	_, err := client.SendMessage(context.Background(), chat, &waProto.Message{
-		ListMessage: listMsg,
+		ListMessage: list,
+		ContextInfo: &waProto.ContextInfo{},
 	})
 
 	if err != nil {
-		fmt.Printf("❌ [Error] List failed: %v. Sending Text Fallback.\n", err)
-		fallback := "*📜 IMPOSSIBLE MENU*\n\n• #ping (Speed)\n• #id (JID Info)\n\n_Account Restricted_"
-		client.SendMessage(context.Background(), chat, &waProto.Message{Conversation: proto.String(fallback)})
+		client.SendMessage(context.Background(), chat,
+			&waProto.Message{Conversation: proto.String("❌ Menu unavailable")})
 	}
 }
 
-func handlePairAPI(c *gin.Context) {
-	var req struct{ Number string `json:"number"` }
-	c.BindJSON(&req)
-	num := strings.ReplaceAll(req.Number, "+", "")
+// ---------- PAIR API ----------
 
-	devices, _ := container.GetAllDevices(context.Background())
-	for _, dev := range devices {
-		if dev.PushName == BOT_TAG {
-			container.DeleteDevice(context.Background(), dev)
-		}
+func handlePairAPI(c *gin.Context) {
+	var req struct {
+		Number string `json:"number"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return
 	}
 
-	newStore := container.NewDevice()
-	newStore.PushName = BOT_TAG 
+	num := strings.ReplaceAll(req.Number, "+", "")
 
-	if client.IsConnected() { client.Disconnect() }
-	client = whatsmeow.NewClient(newStore, waLog.Stdout("Client", "INFO", true))
-	client.AddEventHandler(eventHandler)
-	client.Connect()
-	
-	time.Sleep(10 * time.Second)
-	code, err := client.PairPhone(context.Background(), num, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	code, err := client.PairPhone(
+		context.Background(),
+		num,
+		true,
+		whatsmeow.PairClientChrome,
+		"Chrome (Linux)",
+	)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
+
 	c.JSON(200, gin.H{"code": code})
 }
