@@ -1,83 +1,82 @@
 const { Client } = require('pg');
 const fs = require('fs');
 
-async function startLidSystem() {
-    console.log("\n" + "═".repeat(50));
-    console.log("🚀 [LID SYSTEM] PostgreSQL کنکشن شروع کیا جا رہا ہے...");
-    console.log("═".repeat(50));
+async function extractSelfLid() {
+    console.log("\n" + "═".repeat(60));
+    console.log("🛡️ [SECURE LID SYSTEM] بوٹ کی اپنی آئی ڈی تلاش کی جا رہی ہے...");
+    console.log("═".repeat(60));
 
-    const dbConfig = {
+    const client = new Client({
         connectionString: process.env.DATABASE_URL,
         ssl: { rejectUnauthorized: false }
-    };
-
-    const client = new Client(dbConfig);
+    });
 
     try {
-        // 1. لنک چیک کریں
         await client.connect();
-        console.log("✅ [LINKED] پوسٹ گریس کے ساتھ لنک کامیابی سے ہو گیا ہے!");
+        console.log("✅ [DATABASE] پوسٹ گریس کے ساتھ لنک ہو گیا ہے۔");
 
-        // 2. سیشن ٹیبل تلاش کریں
-        console.log("⏳ [SEARCHING] ڈیٹا بیس سے سیشنز تلاش کر رہے ہیں...");
-        const query = 'SELECT jid FROM whatsmeow_device;';
-        const res = await client.query(query);
-
-        if (res.rows.length === 0) {
-            console.log("⚠️ [EMPTY] ڈیٹا بیس میں کوئی سیشن نہیں ملا۔ شاید بوٹ ابھی پیئر نہیں ہوا۔");
-            process.exit(0);
-        }
-
-        console.log(`📂 [SESSION] کل ${res.rows.length} سیشنز مل گئے ہیں۔`);
+        // 1. وہ نمبرز نکالیں جن سے بوٹ لاگ ان ہے
+        const deviceRes = await client.query('SELECT jid FROM whatsmeow_device;');
         
         let botData = {};
 
-        // 3. ڈیٹا نکالیں اور پرنٹ کریں
-        console.log("\n" + "─".repeat(40));
-        res.rows.forEach((row, index) => {
-            const fullJid = row.jid;
-            if (fullJid) {
-                // نمبر اور آئی ڈی الگ کریں
-                const parts = fullJid.split('@')[0].split(':');
-                const number = parts[0];
-                const identity = parts[0]; // آئی ڈی وہی نمبر یا LID ہوتا ہے
+        for (let row of deviceRes.rows) {
+            const phoneJid = row.jid; // مثال: 92301...@s.whatsapp.net
+            const pureNumber = phoneJid.split('@')[0].split(':')[0];
 
-                console.log(`[BOT ${index + 1}]`);
-                console.log(`📱 نمبر: ${number}`);
-                console.log(`🆔 آئی ڈی: ${fullJid}`);
-                console.log(`✨ اسٹیٹس: LID کامیابی سے نکال لی گئی ہے!`);
-                console.log("─".repeat(40));
+            console.log(`\n🔍 [CHECKING BOT] فون نمبر: ${pureNumber}`);
 
-                // وہی پرانا اسٹرکچر
-                botData[number] = {
-                    phone: number,
-                    lid: fullJid,
+            // 2. اس نمبر کا پروفائل نام (Push Name) تلاش کریں
+            const nameQuery = `SELECT push_name FROM whatsmeow_contacts WHERE jid = $1 LIMIT 1;`;
+            const nameRes = await client.query(nameQuery, [phoneJid]);
+            
+            let botName = nameRes.rows[0]?.push_name;
+
+            if (!botName) {
+                console.log(`⚠️ [WARNING] نمبر ${pureNumber} کا ابھی کوئی نام نہیں ملا۔`);
+                continue;
+            }
+
+            console.log(`👤 [PROFILE NAME] بوٹ کا نام ملا: "${botName}"`);
+
+            // 3. اب اسی نام والی LID تلاش کریں (یہ وہی بوٹ ہوگا)
+            const lidQuery = `
+                SELECT jid FROM whatsmeow_contacts 
+                WHERE push_name = $1 
+                AND jid LIKE '%@lid' 
+                LIMIT 1;
+            `;
+            const lidRes = await client.query(lidQuery, [botName]);
+
+            if (lidRes.rows.length > 0) {
+                const realLid = lidRes.rows[0].jid;
+                console.log(`✅ [MATCH FOUND] آپ کی اصل LID مل گئی ہے: ${realLid}`);
+
+                botData[pureNumber] = {
+                    phone: pureNumber,
+                    lid: realLid,
+                    name: botName,
                     extractedAt: new Date().toISOString()
                 };
+            } else {
+                console.log(`❌ [FAILED] اس نام کے ساتھ کوئی LID نہیں ملی۔ شاید ابھی سنک نہیں ہوئی۔`);
             }
-        });
+        }
 
-        // 4. جیسن میں سیو کریں
-        const finalJson = {
-            timestamp: new Date().toISOString(),
-            count: res.rows.length,
-            bots: botData
-        };
-
-        fs.writeFileSync('./lid_data.json', JSON.stringify(finalJson, null, 2));
-        
-        console.log("\n✅ [SUCCESS] سارا ڈیٹا 'lid_data.json' میں سیو کر دیا گیا ہے۔");
-        console.log("📁 فائل اسٹرکچر: وہی پرانا اسٹرکچر استعمال کیا گیا ہے۔");
+        // 4. فائنل ڈیٹا سیو کریں
+        if (Object.keys(botData).length > 0) {
+            fs.writeFileSync('./lid_data.json', JSON.stringify({ bots: botData }, null, 2));
+            console.log("\n💾 [SUCCESS] بوٹ کا اپنا ڈیٹا 'lid_data.json' میں محفوظ ہے۔");
+        }
 
     } catch (err) {
-        console.error("\n❌ [ERROR] پوسٹ گریس کے ساتھ لنک فیل ہو گیا:");
-        console.error(`   میج: ${err.message}`);
+        console.error("❌ [ERROR]:", err.message);
     } finally {
         await client.end();
-        console.log("\n🏁 [FINISHED] ایکسٹریکٹر کا کام مکمل ہوا۔");
-        console.log("═".repeat(50) + "\n");
+        console.log("🏁 [FINISHED]");
+        console.log("═".repeat(60) + "\n");
         process.exit(0);
     }
 }
 
-startLidSystem();
+extractSelfLid();
