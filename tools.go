@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
@@ -258,7 +257,7 @@ func handleRemini(client *whatsmeow.Client, v *events.Message) {
 					StanzaID:      proto.String(v.Info.ID),
 					Participant:   proto.String(v.Info.Sender.String()),
 					QuotedMessage: v.Message,
-				},
+			},
 			},
 		})
 	} else {

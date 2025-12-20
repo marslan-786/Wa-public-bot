@@ -84,7 +84,8 @@ func containsLink(text string) bool {
 func takeSecurityAction(client *whatsmeow.Client, v *events.Message, action, reason string) {
 	switch action {
 	case "delete":
-		client.DeleteMessage(context.Background(), v.Info.Chat, v.Info.ID)
+		// ✅ FIXED: Use RevokeMessage instead of DeleteMessage
+		client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
 		msg := fmt.Sprintf(`╔═══════════════════════════╗
 ║   🚫 MESSAGE DELETED        ║
 ╠═══════════════════════════╣
@@ -106,7 +107,8 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, action, rea
 		})
 
 	case "deletekick":
-		client.DeleteMessage(context.Background(), v.Info.Chat, v.Info.ID)
+		// ✅ FIXED: Use RevokeMessage instead of DeleteMessage
+		client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
 		client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
 			[]types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
 		
@@ -138,7 +140,8 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, action, rea
 		s.Warnings[senderKey]++
 		warnCount := s.Warnings[senderKey]
 
-		client.DeleteMessage(context.Background(), v.Info.Chat, v.Info.ID)
+		// ✅ FIXED: Use RevokeMessage instead of DeleteMessage
+		client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
 
 		if warnCount >= 3 {
 			client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
