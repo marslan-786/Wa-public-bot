@@ -77,14 +77,16 @@ func main() {
 	client = whatsmeow.NewClient(device, waLog.Stdout("Client", "INFO", true))
 	client.AddEventHandler(eventHandler)
 
-	// Connect if device ID exists
+	// Only connect if already paired
 	if client.Store.ID != nil {
 		err = client.Connect()
 		if err != nil {
-			log.Fatalf("Failed to connect: %v", err)
+			log.Printf("⚠️ Connection error: %v", err)
+		} else {
+			fmt.Println("✅ Session restored and connected")
 		}
-		fmt.Println("✅ Session restored")
-	}
+	} else {
+		fmt.Println("⏳ Waiting for pairing via website...")
 
 	// ------------------- WEB SERVER -------------------
 	gin.SetMode(gin.ReleaseMode)
@@ -216,7 +218,21 @@ func handlePairAPI(c *gin.Context) {
 	}
 
 	number := strings.ReplaceAll(req.Number, "+", "")
+	number = strings.TrimSpace(number)
 
+	// Connect only when pairing is requested
+	if !client.IsConnected() {
+		fmt.Println("🔌 Connecting to WhatsApp...")
+		err := client.Connect()
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Failed to connect: " + err.Error()})
+			return
+		}
+		// Wait for connection to stabilize
+		time.Sleep(5 * time.Second)
+	}
+
+	fmt.Printf("📱 Generating pairing code for: %s\n", number)
 	code, err := client.PairPhone(
 		context.Background(),
 		number,
@@ -229,5 +245,6 @@ func handlePairAPI(c *gin.Context) {
 		return
 	}
 
+	fmt.Printf("✅ Pairing code generated: %s\n", code)
 	c.JSON(200, gin.H{"code": code})
 }
