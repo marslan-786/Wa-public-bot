@@ -15,7 +15,6 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -25,18 +24,19 @@ import (
 )
 
 const (
-	BOT_TAG   = "IMPOSSIBLE_STABLE_V1"
-	DEVELOPER = "Nothing Is Impossible"
+	BOT_NAME   = "IMPOSSIBLE_STABLE_V1"
+	DEV_NAME   = "Nothing Is Impossible"
+	TABLE_PREF = "impossible_bot_" // 🔐 SESSION ISOLATION
 )
 
 var (
-	startTime = time.Now()
+	client    *whatsmeow.Client
 	container *sqlstore.Container
-	clients   []*whatsmeow.Client
+	startTime = time.Now()
 )
 
 func main() {
-	fmt.Println("🚀 IMPOSSIBLE BOT | Starting")
+	fmt.Println("🚀 IMPOSSIBLE BOT | BOOTING")
 
 	dbURL := os.Getenv("DATABASE_URL")
 	dbType := "postgres"
@@ -51,55 +51,39 @@ func main() {
 		dbType,
 		dbURL,
 		waLog.Stdout("DB", "INFO", true),
+		sqlstore.WithTablePrefix(TABLE_PREF),
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	// 🔒 SESSION ISOLATION (صرف اپنا BOT_TAG)
-	devices, _ := container.GetAllDevices(context.Background())
-	for _, dev := range devices {
-		if dev.PushName != BOT_TAG {
-			continue
-		}
-
-		cl := whatsmeow.NewClient(dev, waLog.Stdout("Client", "INFO", true))
-		cl.AddEventHandler(eventHandler)
-		clients = append(clients, cl)
-
-		go func(c *whatsmeow.Client) {
-			err := c.Connect()
-			if err != nil {
-				fmt.Println("❌ Connect failed:", err)
-			} else {
-				fmt.Println("✅ Session restored:", c.Store.ID)
-			}
-		}(cl)
+	device, err := container.GetFirstDevice(context.Background())
+	if err != nil {
+		panic(err)
 	}
 
-	// اگر پہلا run ہے
-	if len(clients) == 0 {
-		dev := container.NewDevice()
-		dev.PushName = BOT_TAG
-		cl := whatsmeow.NewClient(dev, waLog.Stdout("Client", "INFO", true))
-		cl.AddEventHandler(eventHandler)
-		clients = append(clients, cl)
+	client = whatsmeow.NewClient(device, waLog.Stdout("Client", "INFO", true))
+	client.AddEventHandler(eventHandler)
+
+	if client.Store.ID != nil {
+		err = client.Connect()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("✅ Session Restored")
 	}
 
 	// 🌐 Pair API
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
-	r.POST("/api/pair", handlePair)
-
+	r.POST("/pair", handlePair)
 	go r.Run(":8080")
 
+	// 🧹 Graceful Shutdown
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
-
-	for _, c := range clients {
-		c.Disconnect()
-	}
+	client.Disconnect()
 }
 
 func eventHandler(evt interface{}) {
@@ -117,7 +101,7 @@ func eventHandler(evt interface{}) {
 			sendMenu(v.Info.Chat)
 
 		case "#ping":
-			sendAdvancedPing(v.Info.Chat)
+			sendPing(v.Info.Chat)
 		}
 	}
 }
@@ -135,77 +119,77 @@ func getText(msg *waProto.Message) string {
 	return ""
 }
 
+// 📜 LIST MENU (Open Menu Button)
 func sendMenu(chat types.JID) {
 	menu := &waProto.ListMessage{
 		Title:       proto.String("IMPOSSIBLE MENU"),
-		Description: proto.String("Choose an option below"),
+		Description: proto.String("Select an option below"),
 		ButtonText:  proto.String("Open Menu"),
 		ListType:    waProto.ListMessage_SINGLE_SELECT.Enum(),
 		Sections: []*waProto.ListMessage_Section{
 			{
-				Title: proto.String("FEATURES"),
+				Title: proto.String("BOT COMMANDS"),
 				Rows: []*waProto.ListMessage_Row{
 					{
 						RowID:       proto.String("ping"),
 						Title:       proto.String("Ping Status"),
-						Description: proto.String("Check bot latency"),
+						Description: proto.String("Check server latency"),
 					},
 				},
 			},
 		},
 	}
 
-	clients[0].SendMessage(context.Background(), chat, &waProto.Message{
+	client.SendMessage(context.Background(), chat, &waProto.Message{
 		ListMessage: menu,
 	})
 }
 
-func sendAdvancedPing(chat types.JID) {
+// ⚡ ADVANCED PING UI
+func sendPing(chat types.JID) {
 	start := time.Now()
-	time.Sleep(30 * time.Millisecond) // simulate real latency
-	elapsed := time.Since(start)
-
-	// صرف short ms (dot کے بعد نہیں)
-	ping := elapsed.Milliseconds()
+	time.Sleep(25 * time.Millisecond)
+	ms := time.Since(start).Milliseconds()
 
 	uptime := time.Since(startTime).Round(time.Second)
 
 	msg := fmt.Sprintf(
 		"╔══════════════════════╗\n"+
-			"║   🚀 IMPOSSIBLE BOT   ║\n"+
+			"║ 🚀 IMPOSSIBLE BOT     ║\n"+
 			"╠══════════════════════╣\n"+
 			"║ 👨‍💻 Dev: %s\n"+
 			"╠══════════════════════╣\n"+
-			"║   ⚡ PING STATUS\n"+
+			"║ ⚡ PING STATUS\n"+
 			"║   ┌──────────────┐\n"+
 			"║   │  %d ms       │\n"+
 			"║   └──────────────┘\n"+
 			"╠══════════════════════╣\n"+
 			"║ ⏱ Uptime: %s\n"+
 			"╚══════════════════════╝",
-		DEVELOPER,
-		ping,
+		DEV_NAME,
+		ms,
 		uptime,
 	)
 
-	clients[0].SendMessage(context.Background(), chat, &waProto.Message{
+	client.SendMessage(context.Background(), chat, &waProto.Message{
 		Conversation: proto.String(msg),
 	})
 }
 
+// 🔗 PAIR API
 func handlePair(c *gin.Context) {
 	var req struct {
 		Number string `json:"number"`
 	}
+
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "invalid request"})
 		return
 	}
 
 	number := strings.ReplaceAll(req.Number, "+", "")
-	cl := clients[0]
 
-	code, err := cl.PairPhone(
+	code, err := client.PairPhone(
 		context.Background(),
 		number,
 		true,
