@@ -13,7 +13,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// --- 📡 MAIN EVENT HANDLER ---
+// ═══════════════════════════════════════════════════════════════
+// 📡 MAIN EVENT HANDLER
+// ═══════════════════════════════════════════════════════════════
+
 func handler(client *whatsmeow.Client, evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
@@ -90,103 +93,153 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	if !canExecute(client, v, cmd) {
+	// ════════════════════════════════════════════════════════════
+	// 🔐 PERMISSION CHECK (NOW USING LID SYSTEM)
+	// ════════════════════════════════════════════════════════════
+	if !canExecuteCommand(client, v, cmd) {
 		return
 	}
 
 	fullArgs := strings.Join(args, " ")
-	
+
 	fmt.Printf("📩 CMD: %s | User: %s | Chat: %s\n", cmd, v.Info.Sender.User, v.Info.Chat.User)
 
 	switch cmd {
 	case "menu", "help", "list":
 		react(client, v.Info.Chat, v.Info.ID, "📜")
 		sendMenu(client, v)
+		
 	case "ping":
 		react(client, v.Info.Chat, v.Info.ID, "⚡")
 		sendPing(client, v)
+		
 	case "id":
 		react(client, v.Info.Chat, v.Info.ID, "🆔")
 		sendID(client, v)
+		
 	case "owner":
 		react(client, v.Info.Chat, v.Info.ID, "👑")
-		sendOwner(client, v)
+		sendOwnerStatus(client, v) // 🔥 NEW: LID-based verification
+		
+	case "listbots":
+		// 🔥 NEW: Show all registered bots with LIDs
+		react(client, v.Info.Chat, v.Info.ID, "📊")
+		sendBotsList(client, v)
+		
 	case "data":
 		replyMessage(client, v, "╔════════════════╗\n║ 📂 DATA STATUS\n╠════════════════╣\n║ ✅ DB Coming\n╚════════════════╝")
+		
 	case "alwaysonline":
 		toggleAlwaysOnline(client, v)
+		
 	case "autoread":
 		toggleAutoRead(client, v)
+		
 	case "autoreact":
 		toggleAutoReact(client, v)
+		
 	case "autostatus":
 		toggleAutoStatus(client, v)
+		
 	case "statusreact":
 		toggleStatusReact(client, v)
+		
 	case "addstatus":
 		handleAddStatus(client, v, args)
+		
 	case "delstatus":
 		handleDelStatus(client, v, args)
+		
 	case "liststatus":
 		handleListStatus(client, v)
+		
 	case "readallstatus":
 		handleReadAllStatus(client, v)
+		
 	case "setprefix":
 		handleSetPrefix(client, v, args)
+		
 	case "mode":
 		handleMode(client, v, args)
+		
 	case "antilink":
 		startSecuritySetup(client, v, "antilink")
+		
 	case "antipic":
 		startSecuritySetup(client, v, "antipic")
+		
 	case "antivideo":
 		startSecuritySetup(client, v, "antivideo")
+		
 	case "antisticker":
 		startSecuritySetup(client, v, "antisticker")
+		
 	case "kick":
 		handleKick(client, v, args)
+		
 	case "add":
 		handleAdd(client, v, args)
+		
 	case "promote":
 		handlePromote(client, v, args)
+		
 	case "demote":
 		handleDemote(client, v, args)
+		
 	case "tagall":
 		handleTagAll(client, v, args)
+		
 	case "hidetag":
 		handleHideTag(client, v, args)
+		
 	case "group":
 		handleGroup(client, v, args)
+		
 	case "del", "delete":
 		handleDelete(client, v)
+		
 	case "tiktok", "tt":
 		handleTikTok(client, v, fullArgs)
+		
 	case "fb", "facebook":
 		handleFacebook(client, v, fullArgs)
+		
 	case "insta", "ig":
 		handleInstagram(client, v, fullArgs)
+		
 	case "pin", "pinterest":
 		handlePinterest(client, v, fullArgs)
+		
 	case "ytmp3":
 		handleYouTubeMP3(client, v, fullArgs)
+		
 	case "ytmp4":
 		handleYouTubeMP4(client, v, fullArgs)
+		
 	case "sticker", "s":
 		handleSticker(client, v)
+		
 	case "toimg":
 		handleToImg(client, v)
+		
 	case "tovideo":
 		handleToVideo(client, v)
+		
 	case "removebg":
 		handleRemoveBG(client, v)
+		
 	case "remini":
 		handleRemini(client, v)
+		
 	case "tourl":
 		handleToURL(client, v)
+		
 	case "weather":
 		handleWeather(client, v, fullArgs)
+		
 	case "translate", "tr":
 		handleTranslate(client, v, args)
+		
 	case "vv":
 		handleVV(client, v)
 	}
@@ -194,7 +247,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 func isKnownCommand(text string) bool {
 	commands := []string{
-		"menu", "help", "list", "ping", "id", "owner", "data",
+		"menu", "help", "list", "ping", "id", "owner", "data", "listbots",
 		"alwaysonline", "autoread", "autoreact", "autostatus", "statusreact",
 		"addstatus", "delstatus", "liststatus", "readallstatus", "setprefix", "mode",
 		"antilink", "antipic", "antivideo", "antisticker",
@@ -202,7 +255,7 @@ func isKnownCommand(text string) bool {
 		"tiktok", "tt", "fb", "facebook", "insta", "ig", "pin", "pinterest", "ytmp3", "ytmp4",
 		"sticker", "s", "toimg", "tovideo", "removebg", "remini", "tourl", "weather", "translate", "tr", "vv",
 	}
-	
+
 	lowerText := strings.ToLower(strings.TrimSpace(text))
 	for _, cmd := range commands {
 		if strings.HasPrefix(lowerText, cmd) {
@@ -212,7 +265,10 @@ func isKnownCommand(text string) bool {
 	return false
 }
 
-// ==================== مینیو سسٹم ====================
+// ═══════════════════════════════════════════════════════════════
+// 📜 MENU SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
 func sendMenu(client *whatsmeow.Client, v *events.Message) {
 	uptime := time.Since(startTime).Round(time.Second)
 	dataMutex.RLock()
@@ -274,6 +330,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║  ╭─────── TOOLS ───────╮
 ║  │ 🔸 *%sdata* - DB Status
 ║  │ 🔸 *%sid* - Get ID      
+║  │ 🔸 *%slistbots* - Bots🆕
 ║  │ 🔸 *%sping* - Speed     
 ║  │ 🔸 *%sremini* - Enhance
 ║  │ 🔸 *%sremovebg* - BG  
@@ -287,13 +344,14 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║  ╰────────────────────╯
 ║                          
 ╠═════════════════════╣
+║ 🔐 LID-Based Security
 ║ © 2025 Nothing is Impossible 
 ╚═════════════════════╝`,
 		BOT_NAME, OWNER_NAME, currentMode, uptime,
 		p, p, p, p, p, p,
 		p, p, p, p, p, p, p,
 		p, p, p, p, p, p, p, p, p, p, p, p, p, p, p,
-		p, p, p, p, p, p, p, p, p, p, p, p)
+		p, p, p, p, p, p, p, p, p, p, p, p, p)
 
 	sendReplyMessage(client, v, menu)
 }
@@ -338,134 +396,10 @@ func sendID(client *whatsmeow.Client, v *events.Message) {
 	sendReplyMessage(client, v, msg)
 }
 
-// ==================== 🔥 CRITICAL: OWNER LOGIC - EXTRACT BOT'S REAL LID ====================
+// ═══════════════════════════════════════════════════════════════
+// 🛠️ HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
-// ✅ Clean ID extraction (removes @, :, and domain)
-func getCleanID(jidStr string) string {
-	if jidStr == "" {
-		return "unknown"
-	}
-	
-	// Remove @ and everything after it
-	parts := strings.Split(jidStr, "@")
-	userPart := parts[0]
-	
-	// Remove : and everything after it (device ID)
-	if strings.Contains(userPart, ":") {
-		userPart = strings.Split(userPart, ":")[0]
-	}
-	
-	return strings.TrimSpace(userPart)
-}
-
-// ✅ CRITICAL: Get bot's ACTUAL LID from Device Identity
-func getBotLID(client *whatsmeow.Client) string {
-	if client.Store.ID == nil || client.Store.ID.IsEmpty() {
-		fmt.Printf("❌ Bot Store.ID is nil\n")
-		return "unknown"
-	}
-	
-	fmt.Printf("\n🔍 ═══ BOT LID DETECTION ═══\n")
-	
-	// ✅ Method 1: Check Device Store for actual LID
-	// whatsmeow stores the linked device LID in the device identity
-	if client.Store != nil && client.Store.ID != nil {
-		// Try to access AdvSecretKey which contains device info
-		deviceIdentity := client.Store.ID.String()
-		fmt.Printf("   Device Identity: %s\n", deviceIdentity)
-		
-		// Check if bot is a linked device (has Device != 0)
-		if client.Store.ID.Device != 0 {
-			// This is a linked device
-			fmt.Printf("   ✅ Linked Device Detected!\n")
-			fmt.Printf("   Device Number: %d\n", client.Store.ID.Device)
-			
-			// For linked devices, the User field might contain LID-like format
-			// Let's check the raw User field
-			rawUser := client.Store.ID.User
-			fmt.Printf("   Raw User Field: %s\n", rawUser)
-			
-			// Extract LID - if it's numeric and long, it's likely the LID
-			cleanUser := getCleanID(rawUser)
-			
-			// Check if it looks like a LID (long numeric, not phone number format)
-			if len(cleanUser) > 13 && cleanUser != "" {
-				fmt.Printf("   ✅ LID Found: %s\n", cleanUser)
-				return cleanUser
-			}
-		}
-	}
-	
-	// ✅ Method 2: Fallback - use User field
-	fmt.Printf("   ⚠️ Using User field as fallback\n")
-	botUser := client.Store.ID.User
-	fmt.Printf("   User Field: %s\n", botUser)
-	
-	cleanID := getCleanID(botUser)
-	fmt.Printf("   Extracted ID: %s\n", cleanID)
-	fmt.Printf("═══════════════════════════\n\n")
-	
-	return cleanID
-}
-
-// ✅ Get sender's LID (straightforward)
-func getSenderLID(sender types.JID) string {
-	if sender.IsEmpty() {
-		return "unknown"
-	}
-	
-	senderStr := sender.String()
-	senderUser := sender.User
-	
-	fmt.Printf("👤 Sender: %s (User: %s)\n", senderStr, senderUser)
-	
-	cleanID := getCleanID(senderUser)
-	fmt.Printf("   Extracted: %s\n", cleanID)
-	
-	return cleanID
-}
-
-// ✅ FINAL: Owner check - compare LIDs
-func isOwner(client *whatsmeow.Client, sender types.JID) bool {
-	botLID := getBotLID(client)
-	senderLID := getSenderLID(sender)
-	
-	isMatch := (botLID == senderLID && botLID != "unknown")
-	
-	fmt.Printf("\n🎯 OWNER CHECK:\n")
-	fmt.Printf("   Bot LID: %s\n", botLID)
-	fmt.Printf("   Sender LID: %s\n", senderLID)
-	fmt.Printf("   Match: %v\n", isMatch)
-	fmt.Printf("═══════════════════\n\n")
-	
-	return isMatch
-}
-
-// ✅ Display owner verification
-func sendOwner(client *whatsmeow.Client, v *events.Message) {
-	botLID := getBotLID(client)
-	senderLID := getSenderLID(v.Info.Sender)
-	isOwn := isOwner(client, v.Info.Sender)
-	
-	status := "❌ NOT Owner"
-	statusIcon := "🚫"
-	if isOwn {
-		status = "✅ YOU are Owner"
-		statusIcon = "👑"
-	}
-
-	msg := fmt.Sprintf(`╔════════════════╗
-║ %s OWNER CHECK
-╠════════════════╣
-║ 🤖 Bot: %s
-║ 👤 You: %s
-║ 📊 %s
-╚════════════════╝`, statusIcon, botLID, senderLID, status)
-
-	sendReplyMessage(client, v, msg)
-}
-
-// ==================== HELPER FUNCTIONS ====================
 func react(client *whatsmeow.Client, chat types.JID, msgID types.MessageID, emoji string) {
 	client.SendMessage(context.Background(), chat, &waProto.Message{
 		ReactionMessage: &waProto.ReactionMessage{
@@ -520,42 +454,6 @@ func getText(m *waProto.Message) string {
 		return *m.VideoMessage.Caption
 	}
 	return ""
-}
-
-func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
-	if isOwner(client, v.Info.Sender) {
-		return true
-	}
-
-	if !v.Info.IsGroup {
-		return true
-	}
-
-	s := getGroupSettings(v.Info.Chat.String())
-	if s.Mode == "private" {
-		return false
-	}
-	if s.Mode == "admin" {
-		return isAdmin(client, v.Info.Chat, v.Info.Sender)
-	}
-	return true
-}
-
-func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
-	info, err := client.GetGroupInfo(context.Background(), chat)
-	if err != nil {
-		return false
-	}
-
-	userLID := getSenderLID(user)
-	
-	for _, p := range info.Participants {
-		participantLID := getSenderLID(p.JID)
-		if participantLID == userLID && (p.IsAdmin || p.IsSuperAdmin) {
-			return true
-		}
-	}
-	return false
 }
 
 func getGroupSettings(id string) *GroupSettings {

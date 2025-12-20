@@ -38,13 +38,13 @@ func initMongoDB() {
 	uri := "mongodb://mongo:AEvrikOWlrmJCQrDTQgfGtqLlwhwLuAA@crossover.proxy.rlwy.net:29609"
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	mClient, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
 		log.Printf("MongoDB connection failed: %v", err)
 		return
 	}
-	
+
 	mongoColl = mClient.Database("impossible_db").Collection("bot_data")
 	fmt.Println("✅ MongoDB connected")
 }
@@ -52,7 +52,7 @@ func initMongoDB() {
 func main() {
 	fmt.Println("🚀 IMPOSSIBLE BOT | START")
 
-	// Initialize MongoDB
+	// Initialize MongoDB FIRST
 	initMongoDB()
 
 	// Database setup
@@ -81,6 +81,11 @@ func main() {
 	client.AddEventHandler(func(evt interface{}) {
 		handler(client, evt)
 	})
+
+	// ════════════════════════════════════════════════════════════
+	// 🔐 INITIALIZE LID SYSTEM (CRITICAL - RUNS AUTOMATICALLY)
+	// ════════════════════════════════════════════════════════════
+	InitLIDSystem()
 
 	// Load data from MongoDB
 	loadDataFromMongo()
@@ -121,7 +126,7 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
-	
+
 	fmt.Println("\n🛑 Shutting down...")
 	if client != nil && client.IsConnected() {
 		client.Disconnect()
@@ -184,7 +189,7 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Number string `json:"number"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"Invalid JSON"}`, 400)
 		return
@@ -249,6 +254,12 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 			if tempClient.Store.ID != nil {
 				fmt.Println("✅ Paired!")
 				client = tempClient
+				
+				// ════════════════════════════════════════════════════════
+				// 🔄 EXTRACT LID FOR NEW PAIRING (AUTOMATIC)
+				// ════════════════════════════════════════════════════════
+				OnNewPairing(client)
+				
 				broadcastWS(map[string]interface{}{
 					"event":     "paired",
 					"connected": true,
@@ -324,6 +335,10 @@ func handlePairAPILegacy(w http.ResponseWriter, r *http.Request) {
 			if tempClient.Store.ID != nil {
 				fmt.Println("✅ Paired!")
 				client = tempClient
+				
+				// Extract LID for new pairing
+				OnNewPairing(client)
+				
 				return
 			}
 		}

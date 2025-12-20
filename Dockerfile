@@ -1,52 +1,107 @@
-FROM golang:1.24-alpine AS builder
+# ═══════════════════════════════════════════════════════════
+# 🐳 IMPOSSIBLE BOT - MULTI-STAGE DOCKERFILE
+# Features: Go + Node.js + LID Extraction System
+# ═══════════════════════════════════════════════════════════
 
-# 1. Install Tools
-RUN apk add --no-cache gcc musl-dev git sqlite-dev ffmpeg-dev
+# ───────────────────────────────────────────────────────────
+# Stage 1: Go Builder
+# ───────────────────────────────────────────────────────────
+FROM golang:1.24-alpine AS go-builder
+
+# Install Go build dependencies
+RUN apk add --no-cache gcc musl-dev git sqlite-dev
 
 WORKDIR /app
 
-# 2. Copy Code
-COPY . .
+# Copy Go source files
+COPY *.go ./
+COPY go.mod go.sum* ./
 
-# 3. Clean up old/conflicting files (IMPORTANT)
-RUN rm -f database.go || true
-RUN rm -f go.mod go.sum || true
+# If go.mod doesn't exist, initialize
+RUN if [ ! -f go.mod ]; then \
+        go mod init impossible-bot && \
+        go get go.mau.fi/whatsmeow@latest && \
+        go get go.mongodb.org/mongo-driver/mongo@latest && \
+        go get go.mongodb.org/mongo-driver/bson@latest && \
+        go get github.com/mattn/go-sqlite3@latest && \
+        go get github.com/lib/pq@latest && \
+        go get github.com/gorilla/websocket@latest && \
+        go mod tidy; \
+    fi
 
-# 4. Init Module
-RUN go mod init impossible-bot
+# Build Go binary
+RUN go build -ldflags="-s -w" -o bot .
 
-# 5. Download Libraries
-RUN go get go.mau.fi/whatsmeow@latest
-RUN go get go.mongodb.org/mongo-driver/mongo@latest
-RUN go get go.mongodb.org/mongo-driver/bson@latest
-RUN go get github.com/gin-gonic/gin@latest
-RUN go get github.com/mattn/go-sqlite3@latest
-RUN go get github.com/lib/pq@latest
-RUN go get github.com/gorilla/websocket@latest
+# ───────────────────────────────────────────────────────────
+# Stage 2: Node.js Builder
+# ───────────────────────────────────────────────────────────
+FROM node:20-alpine AS node-builder
 
-# 6. Tidy & Build
-RUN go mod tidy
-RUN go build -o bot .
+WORKDIR /app
 
-# -------------------
-# Final Stage
-# -------------------
+# Copy Node.js files
+COPY package*.json ./
+COPY lid-extractor.js ./
+
+# Install Node.js dependencies
+RUN npm install --production
+
+# ───────────────────────────────────────────────────────────
+# Stage 3: Final Runtime Image
+# ───────────────────────────────────────────────────────────
 FROM alpine:latest
 
-# 7. Runtime Dependencies
-RUN apk add --no-cache ca-certificates sqlite-libs ffmpeg
+# Install runtime dependencies (Go + Node.js)
+RUN apk add --no-cache \
+    ca-certificates \
+    sqlite-libs \
+    nodejs \
+    npm \
+    && rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
-# 8. Copy Artifacts
-COPY --from=builder /app/bot .
-COPY --from=builder /app/web ./web
+# ═══════════════════════════════════════════════════════════
+# Copy Go Binary
+# ═══════════════════════════════════════════════════════════
+COPY --from=go-builder /app/bot ./bot
 
-# چونکہ pic.png روٹ میں موجود ہے، اسے سیدھا کاپی کریں (|| true ہٹا دیا ہے)
-COPY --from=builder /app/pic.png ./pic.png
+# ═══════════════════════════════════════════════════════════
+# Copy Node.js Files & Dependencies
+# ═══════════════════════════════════════════════════════════
+COPY --from=node-builder /app/node_modules ./node_modules
+COPY --from=node-builder /app/lid-extractor.js ./lid-extractor.js
+COPY package.json ./package.json
 
-# 9. Environment & Start
+# ═══════════════════════════════════════════════════════════
+# Copy Static Assets
+# ═══════════════════════════════════════════════════════════
+COPY web ./web
+COPY pic.png ./pic.png
+
+# ═══════════════════════════════════════════════════════════
+# Create necessary directories
+# ═══════════════════════════════════════════════════════════
+RUN mkdir -p store logs
+
+# ═══════════════════════════════════════════════════════════
+# Environment Variables
+# ═══════════════════════════════════════════════════════════
 ENV PORT=8080
+ENV NODE_ENV=production
+
+# ═══════════════════════════════════════════════════════════
+# Expose Port
+# ═══════════════════════════════════════════════════════════
 EXPOSE 8080
 
+# ═══════════════════════════════════════════════════════════
+# Health Check
+# ═══════════════════════════════════════════════════════════
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
+
+# ═══════════════════════════════════════════════════════════
+# Start Bot
+# ═══════════════════════════════════════════════════════════
 CMD ["./bot"]
