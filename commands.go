@@ -352,7 +352,25 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 
 	// ✅ دونوں کی LID سے نمبر نکالیں
 	botNum := getLIDNumber(client.Store.ID)
-	userNum := getLIDNumber(v.Info.Sender)
+	userNum := getLIDNumber(&v.Info.Sender)
+
+	msg := fmt.Sprintf(`╔════════════════════╗
+║  %s OWNER VERIFICATION   
+╠════════════════════╣
+║                           
+║  🤖 *Bot Number:*          
+║     %s                    
+║                           
+║  👤 *Your Number:*         
+║     %s                    
+║                           
+║  📊 *Status:*              
+║     %s                    
+║                           
+╚════════════════════╝`, statusIcon, botNum, userNum, status)
+
+	sendReplyMessage(client, v, msg)
+}
 
 	msg := fmt.Sprintf(`╔════════════════════╗
 ║  %s OWNER VERIFICATION   
