@@ -144,27 +144,27 @@ func getText(msg *whatsmeow.ProtoMessage) string {
 // ================= MENU =================
 
 func sendMenu(chat types.JID) {
-	menu := &whatsmeow.ProtoListMessage{
-		Title:       "IMPOSSIBLE MENU",
-		Description: "Select an option",
-		ButtonText:  "Open Menu",
-		ListType:    whatsmeow.ListMessage_SINGLE_SELECT,
-		Sections: []*whatsmeow.ProtoListMessageSection{
-			{
-				Title: "COMMANDS",
-				Rows: []*whatsmeow.ProtoListMessageRow{
-					{
-						RowID: "ping",
-						Title: "Ping",
-					},
-				},
-			},
-		},
-	}
+	menu := &waProto.ListMessage{
+        Title:       proto.String("IMPOSSIBLE MENU"),
+        Description: proto.String("Select an option"),
+        ButtonText:  proto.String("Open Menu"),
+        ListType:    waProto.ListMessage_SINGLE_SELECT.Enum(),
+        Sections: []*waProto.ListMessage_Section{
+            {
+                Title: proto.String("COMMANDS"),
+                Rows: []*waProto.ListMessage_Row{
+                    {
+                        RowID: proto.String("ping"),
+                        Title: proto.String("Ping"),
+                    },
+                },
+            },
+        },
+    }
 
-	client.SendMessage(context.Background(), chat, &whatsmeow.ProtoMessage{
-		ListMessage: menu,
-	})
+    client.SendMessage(context.Background(), chat, &waProto.Message{
+        ListMessage: menu,
+    })
 }
 
 // ================= PING =================
