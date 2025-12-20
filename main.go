@@ -23,7 +23,7 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 
 	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"google.golang.org/protobuf/proto" // ✅ proto.String کے لیے یہ import ضروری ہے
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -139,7 +139,7 @@ func getText(msg *waProto.Message) string {
 		return *msg.Conversation
 	}
 	if msg.ExtendedTextMessage != nil && msg.ExtendedTextMessage.Text != nil {
-		return *msg.ExtendedTextMessage.Text // ✅ pointer dereference کیا
+		return *msg.ExtendedTextMessage.Text
 	}
 	return ""
 }
@@ -157,12 +157,12 @@ func sendMenu(chat types.JID) {
 				Title: proto.String("⚡ COMMANDS"),
 				Rows: []*waProto.ListMessage_Row{
 					{
-						RowId:       proto.String("cmd_ping"),
+						RowID:       proto.String("cmd_ping"),
 						Title:       proto.String("⚡ Ping"),
 						Description: proto.String("Bot کی رفتار چیک کریں"),
 					},
 					{
-						RowId:       proto.String("cmd_info"),
+						RowID:       proto.String("cmd_info"),
 						Title:       proto.String("ℹ️ Info"),
 						Description: proto.String("Bot کی معلومات"),
 					},
@@ -200,7 +200,7 @@ func sendPing(chat types.JID) {
 	)
 
 	client.SendMessage(context.Background(), chat, &waProto.Message{
-		Conversation: proto.String(msg), // ✅ proto.String استعمال کیا
+		Conversation: proto.String(msg),
 	})
 }
 
