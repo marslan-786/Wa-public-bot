@@ -19,6 +19,9 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
+	
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // --- ⚙️ CONFIGURATION ---
@@ -28,27 +31,28 @@ const (
 	OWNER_NUMBER = "92311xxxxxxx"
 )
 
-// --- 💾 DATA STRUCTURES ---
+// --- 💾 DATA STRUCTURES (BSON Added) ---
 type GroupSettings struct {
-	Mode           string         `json:"mode"`
-	Antilink       bool           `json:"antilink"`
-	AntilinkAdmin  bool           `json:"antilink_admin"`
-	AntilinkAction string         `json:"antilink_action"`
-	AntiPic        bool           `json:"antipic"`
-	AntiVideo      bool           `json:"antivideo"`
-	AntiSticker    bool           `json:"antisticker"`
-	Warnings       map[string]int `json:"warnings"`
+	ChatID         string         `bson:"chat_id" json:"chat_id"`
+	Mode           string         `bson:"mode" json:"mode"`
+	Antilink       bool           `bson:"antilink" json:"antilink"`
+	AntilinkAdmin  bool           `bson:"antilink_admin" json:"antilink_admin"`
+	AntilinkAction string         `bson:"antilink_action" json:"antilink_action"`
+	AntiPic        bool           `bson:"antipic" json:"antipic"`
+	AntiVideo      bool           `bson:"antivideo" json:"antivideo"`
+	AntiSticker    bool           `bson:"antisticker" json:"antisticker"`
+	Warnings       map[string]int `bson:"warnings" json:"warnings"`
 }
 
 type BotData struct {
-	Prefix        string                    `json:"prefix"`
-	AlwaysOnline  bool                      `json:"always_online"`
-	AutoRead      bool                      `json:"auto_read"`
-	AutoReact     bool                      `json:"auto_react"`
-	AutoStatus    bool                      `json:"auto_status"`
-	StatusReact   bool                      `json:"status_react"`
-	StatusTargets []string                  `json:"status_targets"`
-	Settings      map[string]*GroupSettings `json:"groups"`
+	ID            string   `bson:"_id" json:"id"` // "global"
+	Prefix        string   `bson:"prefix" json:"prefix"`
+	AlwaysOnline  bool     `bson:"always_online" json:"always_online"`
+	AutoRead      bool     `bson:"auto_read" json:"auto_read"`
+	AutoReact     bool     `bson:"auto_react" json:"auto_react"`
+	AutoStatus    bool     `bson:"auto_status" json:"auto_status"`
+	StatusReact   bool     `bson:"status_react" json:"status_react"`
+	StatusTargets []string `bson:"status_targets" json:"status_targets"`
 }
 
 type SetupState struct {
@@ -63,8 +67,10 @@ var (
 	startTime   = time.Now()
 	data        BotData
 	dataMutex   sync.RWMutex
-	dataFile    = "bot_data.json"
 	setupMap    = make(map[string]*SetupState)
+	// Local cache for group settings to avoid too many DB hits
+	groupCache  = make(map[string]*GroupSettings)
+	cacheMutex  sync.RWMutex
 )
 
 // --- 📡 MAIN EVENT HANDLER ---
@@ -114,7 +120,7 @@ func handler(client *whatsmeow.Client, evt interface{}) {
 		}
 		dataMutex.RUnlock()
 
-		// 4. SECURITY CHECKS
+		// 4. SECURITY CHECKS (Groups Only)
 		if isGroup {
 			checkSecurity(client, v)
 		}
@@ -135,13 +141,12 @@ func handler(client *whatsmeow.Client, evt interface{}) {
 
 		fmt.Printf("📩 CMD: %s | Chat: %s\n", cmd, v.Info.Chat.User)
 
-		// --- COMMAND SWITCH ---
 		switch cmd {
 		case "menu", "help", "list": sendMenu(client, v.Info.Chat)
 		case "ping": sendPing(client, v.Info.Chat, v.Message)
 		case "id": sendID(client, v)
 		case "owner": sendOwner(client, v.Info.Chat, v.Info.Sender)
-		case "data": reply(client, v.Info.Chat, v.Message, "📂 Data saved.")
+		case "data": reply(client, v.Info.Chat, v.Message, "📂 Data is safe in MongoDB.")
 
 		// Settings
 		case "alwaysonline": toggleGlobal(client, v, "alwaysonline")
@@ -161,7 +166,7 @@ func handler(client *whatsmeow.Client, evt interface{}) {
 				dataMutex.Lock()
 				data.Prefix = args[1]
 				dataMutex.Unlock()
-				saveData()
+				saveDataToMongo()
 				reply(client, v.Info.Chat, v.Message, makeCard("SETTINGS", "✅ Prefix updated: "+args[1]))
 			}
 		
@@ -203,7 +208,79 @@ func handler(client *whatsmeow.Client, evt interface{}) {
 	}
 }
 
-// --- 🛠️ HELPER FUNCTIONS ---
+// --- 💾 MONGODB HELPERS ---
+
+func loadDataFromMongo() {
+	if mongoColl == nil { return }
+	
+	// Load Global Config
+	res := mongoColl.FindOne(context.Background(), bson.M{"_id": "global"})
+	if res.Err() == nil {
+		dataMutex.Lock()
+		res.Decode(&data)
+		dataMutex.Unlock()
+	} else {
+		// Initialize Defaults
+		dataMutex.Lock()
+		data.ID = "global"
+		data.Prefix = "#"
+		dataMutex.Unlock()
+		saveDataToMongo()
+	}
+}
+
+func saveDataToMongo() {
+	if mongoColl == nil { return }
+	dataMutex.RLock()
+	defer dataMutex.RUnlock()
+	
+	opts := options.Update().SetUpsert(true)
+	mongoColl.UpdateOne(context.Background(), bson.M{"_id": "global"}, bson.M{"$set": data}, opts)
+}
+
+func getGroupSettings(id string) *GroupSettings {
+	// 1. Check Memory Cache
+	cacheMutex.RLock()
+	if s, ok := groupCache[id]; ok {
+		cacheMutex.RUnlock()
+		return s
+	}
+	cacheMutex.RUnlock()
+
+	// 2. Fetch from Mongo
+	s := &GroupSettings{
+		ChatID: id, Mode: "public", AntilinkAdmin: true, AntilinkAction: "delete", 
+		Warnings: make(map[string]int),
+	}
+	
+	if mongoColl != nil {
+		res := mongoColl.FindOne(context.Background(), bson.M{"chat_id": id})
+		if res.Err() == nil {
+			res.Decode(s)
+		}
+	}
+
+	// 3. Save to Cache
+	cacheMutex.Lock()
+	groupCache[id] = s
+	cacheMutex.Unlock()
+	return s
+}
+
+func saveGroupSettings(s *GroupSettings) {
+	// Update Cache
+	cacheMutex.Lock()
+	groupCache[s.ChatID] = s
+	cacheMutex.Unlock()
+
+	// Update Mongo
+	if mongoColl != nil {
+		opts := options.Update().SetUpsert(true)
+		mongoColl.UpdateOne(context.Background(), bson.M{"chat_id": s.ChatID}, bson.M{"$set": s}, opts)
+	}
+}
+
+// --- 🛠️ LOGIC FUNCTIONS ---
 
 func sendMenu(client *whatsmeow.Client, chat types.JID) {
 	react(client, chat, nil, "📜")
@@ -306,7 +383,6 @@ func sendMenu(client *whatsmeow.Client, chat types.JID) {
 			return
 		}
 	}
-	// Fallback to text if image fails
 	client.SendMessage(context.Background(), chat, &waProto.Message{Conversation: proto.String(menu)})
 }
 
@@ -329,7 +405,7 @@ func toggleGlobal(client *whatsmeow.Client, v *events.Message, key string) {
 	case "statusreact": data.StatusReact = !data.StatusReact; if data.StatusReact { status = "ON 🟢" }
 	}
 	dataMutex.Unlock()
-	saveData()
+	saveDataToMongo()
 	reply(client, v.Info.Chat, v.Message, fmt.Sprintf("⚙️ *%s:* %s", strings.ToUpper(key), status))
 }
 
@@ -347,7 +423,7 @@ func manageStatusList(client *whatsmeow.Client, v *events.Message, args []string
 		data.StatusTargets = newList
 		reply(client, v.Info.Chat, v.Message, "🗑️ Deleted")
 	}
-	saveData()
+	saveDataToMongo()
 }
 
 func startSecuritySetup(client *whatsmeow.Client, v *events.Message, secType string) {
@@ -383,7 +459,7 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message, state *Set
 		case "antisticker": s.AntiSticker = true
 		}
 		
-		saveData()
+		saveGroupSettings(s) // Save to Mongo
 		delete(setupMap, state.User)
 		reply(client, v.Info.Chat, v.Message, makeCard("✅ "+strings.ToUpper(state.Type)+" ENABLED", fmt.Sprintf("👑 Admin Allow: %v\n⚡ Action: %s", s.AntilinkAdmin, strings.ToUpper(s.AntilinkAction))))
 	}
@@ -408,7 +484,7 @@ func checkSecurity(client *whatsmeow.Client, v *events.Message) {
 			client.UpdateGroupParticipants(context.Background(), v.Info.Chat, []types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
 		} else if s.AntilinkAction == "warn" {
 			s.Warnings[v.Info.Sender.String()]++
-			saveData()
+			saveGroupSettings(s) // Update warnings in Mongo
 			if s.Warnings[v.Info.Sender.String()] >= 3 {
 				client.UpdateGroupParticipants(context.Background(), v.Info.Chat, []types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
 				delete(s.Warnings, v.Info.Sender.String())
@@ -502,26 +578,6 @@ func sendOwner(client *whatsmeow.Client, chat types.JID, sender types.JID) {
 	reply(client, chat, nil, makeCard("OWNER VERIFICATION", fmt.Sprintf("🤖 Bot: %s\n👤 You: %s\n\n%s", client.Store.ID.User, sender.User, res)))
 }
 
-// --- ⚙️ UTILITIES & IO ---
-func loadData() {
-	b, _ := ioutil.ReadFile(dataFile)
-	dataMutex.Lock()
-	json.Unmarshal(b, &data)
-	if data.Settings == nil { data.Settings = make(map[string]*GroupSettings) }
-	if data.Prefix == "" { data.Prefix = "#" }
-	dataMutex.Unlock()
-}
-func saveData() {
-	dataMutex.RLock()
-	b, _ := json.MarshalIndent(data, "", "  ")
-	dataMutex.RUnlock()
-	ioutil.WriteFile(dataFile, b, 0644)
-}
-func getGroupSettings(id string) *GroupSettings {
-	dataMutex.Lock(); defer dataMutex.Unlock()
-	if data.Settings[id] == nil { data.Settings[id] = &GroupSettings{Mode: "public", AntilinkAdmin: true, AntilinkAction: "delete", Warnings: make(map[string]int)} }
-	return data.Settings[id]
-}
 func makeCard(title, body string) string { return fmt.Sprintf("╭━━━〔 %s 〕━━━┈\n┃ %s\n╰━━━━━━━━━━━━━━━━━━┈", title, body) }
 func reply(client *whatsmeow.Client, chat types.JID, q *waProto.Message, text string) {
 	client.SendMessage(context.Background(), chat, &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{
@@ -553,7 +609,8 @@ func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
 func handleMode(client *whatsmeow.Client, v *events.Message, args []string) {
 	if !isAdmin(client, v.Info.Chat, v.Info.Sender) && !isOwner(client, v.Info.Sender) { return }
 	if len(args) < 2 { return }
-	s := getGroupSettings(v.Info.Chat.String()); s.Mode = strings.ToLower(args[1]); saveData()
+	s := getGroupSettings(v.Info.Chat.String()); s.Mode = strings.ToLower(args[1]); 
+	saveGroupSettings(s) // Update Mongo
 	reply(client, v.Info.Chat, v.Message, makeCard("MODE CHANGED", "🔒 Mode: "+strings.ToUpper(s.Mode)))
 }
 
@@ -697,6 +754,5 @@ func deleteMsg(client *whatsmeow.Client, chat types.JID, msg *waProto.Message) {
 	if msg.ExtendedTextMessage == nil { return }
 	ctx := msg.ExtendedTextMessage.ContextInfo
 	if ctx == nil { return }
-	// REMOVED UNUSED TARGET
 	client.RevokeMessage(context.Background(), chat, *ctx.StanzaID) 
 }
