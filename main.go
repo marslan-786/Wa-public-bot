@@ -37,12 +37,14 @@ var (
 	mongoClient *mongo.Client
 	mongoColl   *mongo.Collection
 	
-	// WebSocket
+	// WebSocket (FIXED: Allow All Origins)
 	wsupgrader = websocket.Upgrader{
 		ReadBufferSize:   1024,
 		WriteBufferSize:  1024,
 		HandshakeTimeout: 10 * time.Second,
-		CheckOrigin: func(r *http.Request) bool { return true },
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Fixes 400 Bad Request on Railway
+		},
 	}
 	clients = make(map[*websocket.Conn]bool)
 	wsMutex sync.Mutex
@@ -55,7 +57,7 @@ func main() {
 	// 1. Connect MongoDB
 	connectMongo()
 
-	// 2. Load Data (Logic in commands.go)
+	// 2. Load Data
 	loadDataFromMongo()
 
 	// 3. PostgreSQL Connection
@@ -139,7 +141,7 @@ func connectMongo() {
 		log.Fatal("❌ MongoDB Ping Failed: ", err)
 	}
 
-	fmt.Println("✅ Connected to MongoDB (Impossible Cluster)")
+	fmt.Println("✅ Connected to MongoDB")
 	mongoColl = mongoClient.Database("impossible_bot").Collection("settings")
 }
 
@@ -165,13 +167,25 @@ func connectClient(device *store.Device) {
 	}
 }
 
-// --- 🔗 PAIRING ---
+// --- 🔗 PAIRING WITH AUTO-DELETE LOGIC ---
 func handlePairing(c *gin.Context) {
 	var req struct{ Number string `json:"number"` }
 	if c.BindJSON(&req) != nil { return }
 	num := strings.ReplaceAll(req.Number, " ", "")
 	num = strings.ReplaceAll(num, "+", "")
 
+	// 1. Check if session exists & Delete it (Logic added)
+	existingDevices, err := container.GetAllDevices(context.Background())
+	if err == nil {
+		for _, d := range existingDevices {
+			if d.ID != nil && d.ID.User == num {
+				fmt.Printf("♻️ Deleting old session for: %s\n", num)
+				container.DeleteDevice(d)
+			}
+		}
+	}
+
+	// 2. Create New Device
 	device := container.NewDevice()
 	client := whatsmeow.NewClient(device, waLog.Stdout("Pairing", "INFO", true))
 
