@@ -9,54 +9,71 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9" // ✅ ریڈیس لائبریری
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
-
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	rdb      *redis.Client     // ✅ یہ مسنگ تھا، اسی لیے 'undefined' آ رہا ہے
+    ctx      = context.Background() // ✅ ریڈیس کے لیے کانٹیکسٹ
 )
 
 var (
-	client    *whatsmeow.Client
-	container *sqlstore.Container
-	mongoColl *mongo.Collection
-	upgrader  = websocket.Upgrader{
+	client           *whatsmeow.Client
+	container        *sqlstore.Container
+	rdb              *redis.Client // ✅ ریڈیس کلائنٹ
+	ctx              = context.Background()
+	upgrader         = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
 	wsClients = make(map[*websocket.Conn]bool)
+
+	// ⚡ الٹرا فاسٹ کیشنگ
+	botCleanIDCache = make(map[string]string)
+	botPrefixes     = make(map[string]string)
+	prefixMutex     sync.RWMutex
+	clientsMutex    sync.RWMutex
+	activeClients   = make(map[string]*whatsmeow.Client)
 )
 
-func initMongoDB() {
-	uri := "mongodb://mongo:AEvrikOWlrmJCQrDTQgfGtqLlwhwLuAA@crossover.proxy.rlwy.net:29609"
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	mClient, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		log.Printf("MongoDB connection failed: %v", err)
-		return
+// ✅ 1. ریڈیس کنکشن (سائنس دانوں کو حیران کرنے کے لئے)
+func initRedis() {
+	redisURL := os.Getenv("REDIS_URL") // ریلوے کا ویری ایبل
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379" // لوکل بیک اپ
 	}
 
-	mongoColl = mClient.Database("impossible_db").Collection("bot_data")
-	fmt.Println("✅ MongoDB connected")
+	opt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatalf("❌ Redis URL parsing failed: %v", err)
+	}
+
+	rdb = redis.NewClient(opt)
+
+	// چیک کریں کہ کیا ریڈیس آن لائن ہے
+	_, err = rdb.Ping(ctx).Result()
+	if err != nil {
+		log.Fatalf("❌ Redis connection failed: %v", err)
+	}
+	fmt.Println("🚀 [REDIS] Connected Successfully! Zero Latency Mode Active.")
 }
 
 func main() {
 	fmt.Println("🚀 IMPOSSIBLE BOT | START")
 
-	// 1. ڈیٹا بیس اور اپ ٹائم کی شروعات
-	initMongoDB()
+	// 1. ریڈیس اور اپ ٹائم کی شروعات
+	initRedis()
 	loadPersistentUptime()
 	startPersistentUptimeTracker()
 
-	// 2. ڈیٹا بیس کنکشن سیٹ اپ
+	// 2. واٹس ایپ ڈیٹا بیس (SQLite/Postgres)
 	dbURL := os.Getenv("DATABASE_URL")
 	dbType := "postgres"
 	if dbURL == "" {
@@ -64,25 +81,23 @@ func main() {
 		dbURL = "file:impossible.db?_foreign_keys=on"
 	}
 
-	dbLog := waLog.Stdout("Database", "INFO", true)
+	dbLog := waLog.Stdout("Database", "ERROR", true)
 	var err error
 	container, err = sqlstore.New(context.Background(), dbType, dbURL, dbLog)
 	if err != nil {
 		log.Fatalf("❌ DB error: %v", err)
 	}
-
-	// ✅ اہم ترین: گلوبل کنٹینر سیٹ کریں تاکہ SD کمانڈ کام کرے
 	dbContainer = container
 
-	// 3. ملٹی بوٹ سسٹم شروع کریں (یہ تمام سیشنز کو باری باری کنیکٹ کرے گا)
+	// 3. ملٹی بوٹ سسٹم شروع کریں
 	fmt.Println("🤖 Initializing Multi-Bot System...")
 	StartAllBots(container)
 
-	// 4. باقی سسٹمز کی شروعات
+	// 4. باقی سسٹمز
 	InitLIDSystem()
-	loadDataFromMongo()
+	// لوڈ پریفکس فروم ریڈیس (ہم مونگو کو مکمل بائی پاس کر رہے ہیں)
 
-	// 5. ویب سرور کے روٹس (Routes)
+	// 5. ویب سرور روٹس
 	http.HandleFunc("/", serveHTML)
 	http.HandleFunc("/pic.png", servePicture)
 	http.HandleFunc("/ws", handleWebSocket)
@@ -90,15 +105,11 @@ func main() {
 	http.HandleFunc("/link/pair/", handlePairAPILegacy)
 	http.HandleFunc("/link/delete", handleDeleteSession)
 	http.HandleFunc("/del/all", handleDelAllAPI)
-	http.HandleFunc("/del/", handleDelNumberAPI) // اس کے آخر میں سلیش ضروری ہے
-	
+	http.HandleFunc("/del/", handleDelNumberAPI)
 
 	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	if port == "" { port = "8080" }
 
-	// ویب سرور کو الگ بیک گراؤنڈ میں چلائیں
 	go func() {
 		fmt.Printf("🌐 Web Server running on port %s\n", port)
 		if err := http.ListenAndServe(":"+port, nil); err != nil {
@@ -106,23 +117,74 @@ func main() {
 		}
 	}()
 
-	// 6. سسٹم کو بند ہونے سے روکنے کے لیے سگنل ہینڈلنگ
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
+	// 6. شٹ ڈاؤن ہینڈلنگ
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
 
 	fmt.Println("\n🛑 Shutting down system...")
-	
-	// تمام ایکٹو کلائنٹس کو ڈس کنیکٹ کریں
 	clientsMutex.Lock()
 	for id, activeClient := range activeClients {
 		fmt.Printf("🔌 Disconnecting Bot: %s\n", id)
 		activeClient.Disconnect()
 	}
 	clientsMutex.Unlock()
-
 	fmt.Println("👋 Goodbye!")
 }
+
+// ✅ ⚡ بوٹ کنیکٹ ہوتے ہی آئی ڈی اور پریفکس کیش کریں
+func ConnectNewSession(device *store.Device) {
+	rawID := device.ID.User
+	cleanID := getCleanID(rawID)
+	
+	// 1. آئی ڈی کیش میں ڈالیں
+	clientsMutex.Lock()
+	botCleanIDCache[rawID] = cleanID
+	clientsMutex.Unlock()
+
+	// 2. ریڈیس سے پریفکس اٹھائیں
+	p, err := rdb.Get(ctx, "prefix:"+cleanID).Result()
+	if err != nil { p = "." } // اگر نہیں ہے تو ڈیفالٹ
+	
+	prefixMutex.Lock()
+	botPrefixes[cleanID] = p
+	prefixMutex.Unlock()
+
+	// ڈپلیکیٹ چیک
+	clientsMutex.RLock()
+	_, exists := activeClients[cleanID]
+	clientsMutex.RUnlock()
+	if exists { return }
+
+	client := whatsmeow.NewClient(device, waLog.Stdout("Client", "ERROR", true))
+	client.AddEventHandler(func(evt interface{}) { handler(client, evt) })
+
+	if err := client.Connect(); err != nil {
+		fmt.Printf("❌ [CONNECT ERROR] %s: %v\n", cleanID, err)
+		return
+	}
+
+	clientsMutex.Lock()
+	activeClients[cleanID] = client
+	clientsMutex.Unlock()
+
+	fmt.Printf("✅ [CONNECTED] Bot: %s | Prefix: %s\n", cleanID, p)
+}
+
+// ✅ ⚡ ریڈیس پریفکس اپڈیٹ (مونگو ڈی بی ریپلیسمنٹ)
+func updatePrefixDB(botID string, newPrefix string) {
+	prefixMutex.Lock()
+	botPrefixes[botID] = newPrefix
+	prefixMutex.Unlock()
+
+	// ریڈیس میں سیو کریں (کبھی ڈیٹا ضائع نہیں ہوگا)
+	err := rdb.Set(ctx, "prefix:"+botID, newPrefix, 0).Err()
+	if err != nil {
+		fmt.Printf("❌ [REDIS ERR] Could not save prefix: %v\n", err)
+	}
+}
+
+// ... (باقی ویب روٹس اور ہینڈلرز ویسے ہی رہیں گے)
 
 
 func serveHTML(w http.ResponseWriter, r *http.Request) {
