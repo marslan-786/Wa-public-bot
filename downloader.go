@@ -447,20 +447,6 @@ func sendTikTokVideo(client *whatsmeow.Client, v *events.Message, videoURL, capt
 	})
 }
 
-package main
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"os/exec"
-	"strings"
-	"time"
-
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/types/events"
-)
-
 // 🎥 فیس بک ڈاؤنلوڈر ہینڈلر
 func handleFacebook(client *whatsmeow.Client, v *events.Message, url string) {
 	react(client, v.Info.Chat, v.Info.ID, "🔍")
