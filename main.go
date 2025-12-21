@@ -51,11 +51,12 @@ func initMongoDB() {
 func main() {
 	fmt.Println("🚀 IMPOSSIBLE BOT | START")
 
+	// 1. ڈیٹا بیس اور اپ ٹائم کی شروعات
 	initMongoDB()
 	loadPersistentUptime()
-    startPersistentUptimeTracker()
+	startPersistentUptimeTracker()
 
-
+	// 2. ڈیٹا بیس کنکشن سیٹ اپ
 	dbURL := os.Getenv("DATABASE_URL")
 	dbType := "postgres"
 	if dbURL == "" {
@@ -67,36 +68,21 @@ func main() {
 	var err error
 	container, err = sqlstore.New(context.Background(), dbType, dbURL, dbLog)
 	if err != nil {
-		log.Fatalf("DB error: %v", err)
+		log.Fatalf("❌ DB error: %v", err)
 	}
 
-	deviceStore, err := container.GetFirstDevice(context.Background())
-	if err != nil {
-		log.Fatalf("Device error: %v", err)
-	}
+	// ✅ اہم ترین: گلوبل کنٹینر سیٹ کریں تاکہ SD کمانڈ کام کرے
+	dbContainer = container
 
-	client = whatsmeow.NewClient(deviceStore, waLog.Stdout("Client", "INFO", true))
-	
-	SetGlobalClient(client)
-	client.AddEventHandler(func(evt interface{}) {
-    handler(client, evt)
-})
+	// 3. ملٹی بوٹ سسٹم شروع کریں (یہ تمام سیشنز کو باری باری کنیکٹ کرے گا)
+	fmt.Println("🤖 Initializing Multi-Bot System...")
+	StartAllBots(container)
 
-
+	// 4. باقی سسٹمز کی شروعات
 	InitLIDSystem()
 	loadDataFromMongo()
 
-	if client.Store.ID != nil {
-		err = client.Connect()
-		if err != nil {
-			log.Printf("⚠️ Connection failed: %v", err)
-		} else {
-			fmt.Println("✅ Session restored")
-		}
-	} else {
-		fmt.Println("⏳ No session - use web interface to pair")
-	}
-
+	// 5. ویب سرور کے روٹس (Routes)
 	http.HandleFunc("/", serveHTML)
 	http.HandleFunc("/pic.png", servePicture)
 	http.HandleFunc("/ws", handleWebSocket)
@@ -109,6 +95,7 @@ func main() {
 		port = "8080"
 	}
 
+	// ویب سرور کو الگ بیک گراؤنڈ میں چلائیں
 	go func() {
 		fmt.Printf("🌐 Web Server running on port %s\n", port)
 		if err := http.ListenAndServe(":"+port, nil); err != nil {
@@ -116,16 +103,24 @@ func main() {
 		}
 	}()
 
+	// 6. سسٹم کو بند ہونے سے روکنے کے لیے سگنل ہینڈلنگ
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 
-	fmt.Println("\n🛑 Shutting down...")
-	if client != nil && client.IsConnected() {
-		client.Disconnect()
+	fmt.Println("\n🛑 Shutting down system...")
+	
+	// تمام ایکٹو کلائنٹس کو ڈس کنیکٹ کریں
+	clientsMutex.Lock()
+	for id, activeClient := range activeClients {
+		fmt.Printf("🔌 Disconnecting Bot: %s\n", id)
+		activeClient.Disconnect()
 	}
+	clientsMutex.Unlock()
+
 	fmt.Println("👋 Goodbye!")
 }
+
 
 func serveHTML(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "web/index.html")

@@ -26,20 +26,29 @@ var (
 )
 
 func handler(botClient *whatsmeow.Client, evt interface{}) {
-	// اب ہمیں گلوبل کلائنٹ کی ضرورت نہیں، ہم وہ کلائنٹ استعمال کریں گے جس نے ایونٹ بھیجا ہے
+	// 🛡️ سیف گارڈ: اگر اس بوٹ میں کوئی ایرر آئے تو یہ پورے سسٹم کو کریش نہیں ہونے دے گا
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("⚠️ [CRASH PREVENTED] Bot %s encountered an error: %v\n", botClient.Store.ID.User, r)
+		}
+	}()
+
 	if botClient == nil {
 		return
 	}
 	
 	switch v := evt.(type) {
 	case *events.Message:
-		// میسج پروسیسنگ کے لیے اسی مخصوص بوٹ کا کلائنٹ بھیجیں
+		// ہر میسج کو الگ بیک گراؤنڈ (Goroutine) میں چلائیں
 		go processMessage(botClient, v)
 	case *events.GroupInfo:
-		// گروپ تبدیلیوں کے لیے بھی وہی کلائنٹ
 		go handleGroupInfoChange(botClient, v)
+	case *events.Connected, *events.LoggedOut:
+		// کنکشن اسٹیٹس لاگ کریں
+		fmt.Printf("ℹ️ [STATUS] Bot %s: %T\n", botClient.Store.ID.User, v)
 	}
 }
+
 
 
 func isKnownCommand(text string) bool {
@@ -662,63 +671,45 @@ func ConnectNewSession(device *store.Device) {
 
 
 func StartAllBots(container *sqlstore.Container) {
+	dbContainer = container // سیشن ڈیلیٹ کے لیے کنٹینر سیٹ کریں
 	ctx := context.Background()
 	
 	devices, err := container.GetAllDevices(ctx)
 	if err != nil {
-		fmt.Printf("❌ [MULTI-BOT] ڈیٹا بیس سے سیشن لوڈ کرنے میں غلطی: %v\n", err)
+		fmt.Printf("❌ [DB-ERROR] Could not load sessions: %v\n", err)
 		return
 	}
 
-	if len(devices) == 0 {
-		fmt.Println("⚠️ [MULTI-BOT] کوئی سیشن نہیں ملا! نیا سیشن بنائیں۔")
-		return
-	}
+	fmt.Printf("\n╔═══════════════════════════════════╗\n")
+	fmt.Printf("║ 🤖 STARTING MULTI-BOT SYSTEM      \n")
+	fmt.Printf("╠═══════════════════════════════════╣\n")
+	fmt.Printf("║ 📂 Found Sessions: %d             \n", len(devices))
+	fmt.Printf("╚═══════════════════════════════════╝\n")
 
-	fmt.Printf(`
-╔═══════════════════════════════════╗
-║ 🚀 MULTI-BOT SYSTEM STARTING
-╠═══════════════════════════════════╣
-║ 📂 Found: %d session(s) in DB
-║ 🔄 Connecting all bots...
-╚═══════════════════════════════════╝
-`, len(devices))
-
-	var wg sync.WaitGroup
 	for i, device := range devices {
-		wg.Add(1)
+		// 🚀 ہر بوٹ کو بالکل الگ بیک گراؤنڈ میں اسٹارٹ کریں
 		go func(idx int, dev *store.Device) {
-			defer wg.Done()
+			botNum := getCleanID(dev.ID.User)
+			fmt.Printf("[%d] 🔌 Connecting Bot: %s...\n", idx+1, botNum)
 			
-			fmt.Printf("\n[%d/%d] 🔌 کنیکٹ ہو رہا ہے: %s...\n", idx+1, len(devices), getCleanID(dev.ID.User))
+			// کریش سے بچنے کے لیے یہاں بھی ریکور لگائیں
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("❌ Bot %s failed to start: %v\n", botNum, r)
+				}
+			}()
+			
 			ConnectNewSession(dev)
-			
-			time.Sleep(2 * time.Second)
 		}(i, device)
+		
+		// تھوڑا سا وقفہ دیں تاکہ ڈیٹا بیس اوور لوڈ نہ ہو
+		time.Sleep(3 * time.Second)
 	}
 
-	wg.Wait()
-
-	clientsMutex.RLock()
-	activeCount := len(activeClients)
-	clientsMutex.RUnlock()
-
-	fmt.Printf(`
-╔═══════════════════════════════════╗
-║ ✅ MULTI-BOT SYSTEM READY!
-╠═══════════════════════════════════╣
-║ 🤖 Active Bots: %d/%d
-║ 🔐 LID Security: Enabled
-║ 📡 Auto-Connect: Active
-║ 💾 Database: PostgreSQL
-╠═══════════════════════════════════╣
-║ 💡 نئے سیشن خودکار طور پر
-║    کنیکٹ ہو جائیں گے!
-╚═══════════════════════════════════╝
-`, activeCount, len(devices))
-
+	// نئے سیشنز کی نگرانی شروع کریں
 	go monitorNewSessions(container)
 }
+
 
 func monitorNewSessions(container *sqlstore.Container) {
 	ticker := time.NewTicker(30 * time.Second)
