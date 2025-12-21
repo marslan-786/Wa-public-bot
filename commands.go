@@ -78,24 +78,25 @@ func isKnownCommand(text string) bool {
 }
 
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// 1. میسج کا ٹیکسٹ نکالیں (تیز ترین طریقہ)
-	bodyRaw := getText(v.Message)
-	if bodyRaw == "" { return }
-	bodyClean := strings.TrimSpace(bodyRaw)
-
-	// 2. ⚡ میموری سے بوٹ کی آئی ڈی اور پریفکس حاصل کریں (ڈیٹا بیس کال ختم)
+	// 1. بنیادی ویری ایبلز (صرف ایک بار ڈکلیئر کریں - الٹرا فاسٹ)
 	rawBotID := client.Store.ID.User
 	botID, exists := botCleanIDCache[rawBotID]
 	if !exists {
-		botID = getCleanID(rawBotID) // اگر میموری میں نہ ہو تو ایک بار کلین کریں
+		botID = getCleanID(rawBotID)
 		botCleanIDCache[rawBotID] = botID
 	}
+	
+	chatID := v.Info.Chat.String()
+	senderID := v.Info.Sender.String()
+	isGroup := v.Info.IsGroup
+	bodyRaw := getText(v.Message)
+	if bodyRaw == "" { return }
+	bodyClean := strings.TrimSpace(bodyRaw)
+	
+	// پریفکس میموری سے حاصل کریں
 	prefix := getPrefix(botID)
 
 	// 🛠️ ⚡ اسپیڈ بوسٹ فلٹر (Early Exit)
-	senderID := v.Info.Sender.String()
-	chatID := v.Info.Chat.String()
-	
 	_, isTT := ttCache[senderID]
 	_, isYTS := ytCache[senderID]
 	_, isYTSelect := ytDownloadCache[chatID]
@@ -107,13 +108,13 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return 
 	}
 
-	// 3. سیٹ اپ رسپانس ہینڈلر
+	// 2. سیٹ اپ رسپانس ہینڈلر
 	if isSetup {
 		handleSetupResponse(client, v, setupMap[senderID])
 		return
 	}
 
-	// 4. اسٹیٹس براڈکاسٹ (Auto Status View/React) - اوریجنل کوڈ
+	// 3. اسٹیٹس براڈکاسٹ (Auto Status View/React)
 	if chatID == "status@broadcast" {
 		dataMutex.RLock()
 		if data.AutoStatus {
@@ -127,7 +128,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 5. آٹو ریڈ اور آٹو ری ایکٹ ( Regular Commands کے لئے)
+	// 4. آٹو ریڈ اور آٹو ری ایکٹ
 	dataMutex.RLock()
 	if data.AutoRead {
 		client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
@@ -137,12 +138,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 	dataMutex.RUnlock()
 
-	// 6. گروپ سیکیورٹی چیک
-	if v.Info.IsGroup {
+	// 5. گروپ سیکیورٹی چیک
+	if isGroup {
 		checkSecurity(client, v)
 	}
 
-	// 7. 🛠️ انٹرایکٹو آپشنز (TikTok/YouTube) - آپ کا اوریجنل کارڈ اسٹائل
+	// 6. 🛠️ انٹرایکٹو آپشنز (TikTok/YouTube)
 	if isTT {
 		state := ttCache[senderID]
 		if bodyClean == "1" {
@@ -155,13 +156,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			return
 		} else if bodyClean == "3" {
 			delete(ttCache, senderID)
-			infoMsg := fmt.Sprintf(`╔═══════════════════╗
-║ 📄 TIKTOK INFO      
-╠═══════════════════╣
-║ 📝 Title: %s
-║ 📊 Size: %.2f MB
-║ ✨ Status: Success
-╚═══════════════════╝`, state.Title, float64(state.Size)/(1024*1024))
+			infoMsg := fmt.Sprintf("╔═══════════════════╗\n║ 📄 TIKTOK INFO\n╠═══════════════════╣\n║ 📝 Title: %s\n║ 📊 Size: %.2f MB\n╚═══════════════════╝", state.Title, float64(state.Size)/(1024*1024))
 			replyMessage(client, v, infoMsg)
 			return
 		}
@@ -191,41 +186,36 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// 8. کمانڈ پارسنگ (Prefix Logic)
+	// 7. ✅ کمانڈ اور آرگیومنٹس کی ڈیکلریشن (اسی کی وجہ سے ایرر آ رہا تھا)
 	cmdBody := strings.ToLower(strings.TrimPrefix(bodyClean, prefix))
 	split := strings.Fields(cmdBody)
 	if len(split) == 0 { return }
+	
 	cmd := split[0]
-	fullArgs := strings.Join(split[1:], " ")
+	args := split[1:] // 👈 اب 'args' یہاں ڈیفائن ہو گیا ہے
+	fullArgs := strings.Join(args, " ")
 
-	// 🛡️ 9. پرمیشن چیک (صرف ضرورت پڑنے پر آئی ڈی چیک کریں)
+	// 8. پرمیشن چیک
 	if !canExecute(client, v, cmd) {
 		return
 	}
 
-	// 10. کنسول لاگنگ
+	// 9. کنسول لاگنگ
 	fmt.Printf("📩 [BOT: %s] CMD: %s | User: %s | Chat: %s\n", botID, cmd, v.Info.Sender.User, chatID)
 
-	// --- یہاں سے آگے آپ کا 'switch cmd {' شروع ہو رہا ہے ---
-
-	// --- یہاں سے نیچے آپ کا 'switch cmd {' شروع ہوگا ---
-
-	// --- اب یہاں سے آپ کا 'switch cmd {' شروع ہوگا ---
-
-	// 9. مین کمانڈ سوئچ (Switch Case)
+	// 10. مین کمانڈ سوئچ
 	switch cmd {
 	case "setprefix":
-		// صرف اونر پریفکس بدل سکتا ہے
 		if !isOwner(client, v.Info.Sender) {
 			replyMessage(client, v, "❌ Only Owner can change the prefix.")
 			return
 		}
 		if fullArgs == "" {
-			replyMessage(client, v, "⚠️ Please provide a prefix. Example: .setprefix !")
+			replyMessage(client, v, "⚠️ Usage: .setprefix !")
 			return
 		}
 		updatePrefixDB(botID, fullArgs)
-		replyMessage(client, v, fmt.Sprintf("✅ Prefix updated to [%s] for this bot instance.", fullArgs))
+		replyMessage(client, v, fmt.Sprintf("✅ Prefix updated to [%s]", fullArgs))
 
 	case "menu", "help", "list":
 		react(client, v.Info.Chat, v.Info.ID, "📜")
@@ -234,13 +224,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		react(client, v.Info.Chat, v.Info.ID, "⚡")
 		sendPing(client, v)
 	case "id":
-		react(client, v.Info.Chat, v.Info.ID, "🆔")
 		sendID(client, v)
 	case "owner":
-		react(client, v.Info.Chat, v.Info.ID, "👑")
 		sendOwner(client, v)
 	case "listbots":
-		react(client, v.Info.Chat, v.Info.ID, "📊")
 		sendBotsList(client, v)
 	case "data":
 		replyMessage(client, v, "╔════════════════╗\n║ 📂 DATA STATUS\n╠════════════════╣\n║ ✅ System Active\n╚════════════════╝")
@@ -262,7 +249,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleListStatus(client, v)
 	case "readallstatus":
 		handleReadAllStatus(client, v)
-		// یہ اوپر ہینڈل ہو چکا ہے، یہاں صرف ایرر سے بچنے کے لیے رکھا ہے
 	case "mode":
 		handleMode(client, v, args)
 	case "antilink":
