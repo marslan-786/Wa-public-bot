@@ -525,25 +525,12 @@ func sendPremiumCard(client *whatsmeow.Client, v *events.Message, title, site, i
 }
 
 // 1. 📱 TIKTOK (No Watermark)
-func handleTikTok(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "📱")
-	// Logic to fetch metadata and show 1, 2, 3 options
-	sendPremiumCard(client, v, "TikTok Video", "TikTok", "🔢 Reply 1 for Video\n🔢 Reply 2 for Audio")
-}
 
 // 2. 🎬 FACEBOOK
-func handleFacebook(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🎥")
-	sendPremiumCard(client, v, "FB Media", "Facebook", "✅ Downloading High Quality Video...")
-	go downloadAndSend(client, v, url, "video")
-}
+
 
 // 3. 📸 INSTAGRAM
-func handleInstagram(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "📸")
-	sendPremiumCard(client, v, "Insta Reel/Post", "Instagram", "✨ Extracting from Instagram...")
-	go downloadAndSend(client, v, url, "video")
-}
+
 
 // 4. 🐦 TWITTER / X
 func handleTwitter(client *whatsmeow.Client, v *events.Message, url string) {
@@ -869,60 +856,16 @@ func sendDocument(client *whatsmeow.Client, v *events.Message, docURL, name, mim
 	})
 }
 // 1. 🧵 THREADS (Instagram's Threads)
-func handleThreads(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🧵")
-	sendPremiumCard(client, v, "Threads Media", "Threads", "✨ Fetching from Instagram's Network...")
-	go downloadAndSend(client, v, url, "video")
-}
 
 // 2. 👻 SNAPCHAT (Stories/Spotlight)
-func handleSnapchat(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "👻")
-	sendPremiumCard(client, v, "Snap Media", "Snapchat", "🪄 Capturing Snap Spotlight...")
-	go downloadAndSend(client, v, url, "video")
-}
 
 // 3. 🤖 REDDIT (With Audio Fix)
-func handleReddit(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🤖")
-	sendPremiumCard(client, v, "Reddit Video", "Reddit", "📑 Merging Audio & Video Streams...")
-	go downloadAndSend(client, v, url, "video")
-}
 
 // 4. 🎮 TWITCH (Clips & Highlights)
-func handleTwitch(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🎮")
-	sendPremiumCard(client, v, "Twitch Clip", "Twitch", "🕹️ Grabbing the Live Clip...")
-	go downloadAndSend(client, v, url, "video")
-}
 
 // 5. 🥊 RUMBLE
-func handleRumble(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🥊")
-	sendPremiumCard(client, v, "Rumble Video", "Rumble", "👊 Extracting Rumble Stream...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-// 6. 🌐 DAILYMOTION
-func handleDailyMotion(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "📺")
-	sendPremiumCard(client, v, "DM Video", "DailyMotion", "📦 Fetching HQ Content...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-// 7. 💠 VIMEO
-func handleVimeo(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "💠")
-	sendPremiumCard(client, v, "Vimeo Pro", "Vimeo", "✨ Professional Grade Extraction...")
-	go downloadAndSend(client, v, url, "video")
-}
 
 // 8. 🎧 SOUNDCLOUD
-func handleSoundCloud(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🎧")
-	sendPremiumCard(client, v, "HQ Music", "SoundCloud", "🎵 Ripping 320kbps Stream...")
-	go downloadAndSend(client, v, url, "audio")
-}
 
 // 9. ☁️ MIXCLOUD
 func handleMixcloud(client *whatsmeow.Client, v *events.Message, url string) {
