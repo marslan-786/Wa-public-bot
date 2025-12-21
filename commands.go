@@ -417,20 +417,32 @@ func getCleanID(jidStr string) string {
 	return strings.TrimSpace(userPart)
 }
 
+// 🆔 ڈیٹا بیس سے صرف اور صرف LID نکالنا
 func getBotLIDFromDB(client *whatsmeow.Client) string {
-	if client.Store.ID == nil { return "unknown" }
-	lidStr := client.Store.LID.String()
-	if lidStr != "" { return getCleanID(lidStr) }
-	return getCleanID(client.Store.ID.User)
+	// اگر سٹور میں LID موجود نہیں ہے تو unknown واپس کرے
+	if client.Store.LID.IsEmpty() { 
+		return "unknown" 
+	}
+	// صرف LID کا یوزر آئی ڈی (ہندسے) نکال کر صاف کریں
+	return getCleanID(client.Store.LID.User)
 }
 
+// 🎯 اونر لاجک: صرف LID میچنگ (نمبر میچ نہیں ہوگا)
 func isOwner(client *whatsmeow.Client, sender types.JID) bool {
-	if client.Store.ID == nil { return false }
-	senderClean := getCleanID(sender.String())
-	rawBotID := client.Store.ID.User
-	botID := botCleanIDCache[rawBotID]
-	if botID == "" { botID = getCleanID(rawBotID) }
-	return (senderClean == botID)
+	// اگر بوٹ کی اپنی LID سٹور میں نہیں ہے تو چیک فیل کر دیں
+	if client.Store.LID.IsEmpty() { 
+		return false 
+	}
+
+	// 1. میسج بھیجنے والے کی LID نکالیں
+	senderLID := getCleanID(sender.User)
+
+	// 2. بوٹ کی اپنی LID نکالیں
+	botLID := getCleanID(client.Store.LID.User)
+
+	// 🔍 فائنل چیک: صرف LID بمقابلہ LID
+	// اب یہ 192883340648500 کو بوٹ کی LID سے ہی میچ کرے گا
+	return senderLID == botLID
 }
 
 func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
@@ -550,6 +562,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║                             
 ║ ╭─── VIDEO & STREAMS ────╮
 ║ │ 🔸 *%sytmp4* - ✅ YouTube Video
+║ │ 🔸 *%syts* - ✅ YouTube Search
 ║ │ 🔸 *%sytmp3* - ✅ YouTube Audio
 ║ │ 🔸 *%stwitch* - Twitch Clips
 ║ │ 🔸 *%sdm* - DailyMotion HQ
@@ -614,7 +627,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%sgit* - GitHub Downloader
 ║ │ 🔸 *%sarchive* - Internet Archive
 ║ │ 🔸 *%smega* - Universal Downloader
-║ ╰──────────────────────────╯
+║ ╰────────────────────────╯
 ║                           
 ╠══════════════════════╣
 ║ © 2025 Nothing is Impossible 
@@ -623,7 +636,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		// سوشل ڈاؤنلوڈرز (8)
 		p, p, p, p, p, p, p, p,
 		// ویڈیوز (10)
-		p, p, p, p, p, p, p, p, p, p,
+		p, p, p, p, p, p, p, p, p, p, p,
 		// میوزک (8)
 		p, p, p, p, p, p, p, p,
 		// گروپ (7)
@@ -647,9 +660,9 @@ func sendPing(client *whatsmeow.Client, v *events.Message) {
 ║ 🚀 Speed: %d MS
 ║ ⏱️ Uptime: %s
 ║ 👑 Dev: %s
-╠════════════════════╣
+╠═════════════════════╣
 ║      🟢 System Running
-╚════════════════════╝`, ms, uptimeStr, OWNER_NAME)
+╚═════════════════════╝`, ms, uptimeStr, OWNER_NAME)
 	sendReplyMessage(client, v, msg)
 }
 
