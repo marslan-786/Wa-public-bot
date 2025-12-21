@@ -28,6 +28,7 @@ var (
 	botPrefixes = make(map[string]string) 
     prefixMutex sync.RWMutex
     prefixCache = sync.Map{}
+    botCleanIDCache = make(map[string]string) // کلین آئی ڈی میموری میں رکھنے کے لئے
 )
 
 func handler(botClient *whatsmeow.Client, evt interface{}) {
@@ -77,37 +78,42 @@ func isKnownCommand(text string) bool {
 }
 
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// 1. بنیادی ویری ایبلز (صرف ایک بار ڈکلیئر کریں - الٹرا فاسٹ پروسیسنگ کے لئے)
-	botID := getBotLIDFromDB(client)
-	chatID := v.Info.Chat.String()
-	senderID := v.Info.Sender.String()
-	isGroup := v.Info.IsGroup
+	// 1. میسج کا ٹیکسٹ نکالیں (تیز ترین طریقہ)
 	bodyRaw := getText(v.Message)
+	if bodyRaw == "" { return }
 	bodyClean := strings.TrimSpace(bodyRaw)
-	
-	// 🛠️ بوٹ کا مخصوص پریفکس ڈیٹا بیس/میموری سے حاصل کریں (Bot-Specific Isolation)
+
+	// 2. ⚡ میموری سے بوٹ کی آئی ڈی اور پریفکس حاصل کریں (ڈیٹا بیس کال ختم)
+	rawBotID := client.Store.ID.User
+	botID, exists := botCleanIDCache[rawBotID]
+	if !exists {
+		botID = getCleanID(rawBotID) // اگر میموری میں نہ ہو تو ایک بار کلین کریں
+		botCleanIDCache[rawBotID] = botID
+	}
 	prefix := getPrefix(botID)
 
 	// 🛠️ ⚡ اسپیڈ بوسٹ فلٹر (Early Exit)
-	// اگر پریفکس نہیں ہے اور یہ کوئی ایکٹیو سلیکشن (Interactive) بھی نہیں ہے، تو بوٹ یہیں رک جائے گا
+	senderID := v.Info.Sender.String()
+	chatID := v.Info.Chat.String()
+	
 	_, isTT := ttCache[senderID]
 	_, isYTS := ytCache[senderID]
 	_, isYTSelect := ytDownloadCache[chatID]
 	isSetup := false
 	if state, ok := setupMap[senderID]; ok && state.GroupID == chatID { isSetup = true }
 
-	// 🚀 گروپ ٹریفک فلٹر: اگر کام کی چیز نہیں ہے تو ریم اور سی پی یو ضائع نہ کرو
+	// 🚀 اگر یہ کمانڈ نہیں ہے اور نہ ہی کوئی ایکٹیو سیشن ہے، تو بوٹ یہیں رک جائے گا
 	if !strings.HasPrefix(bodyClean, prefix) && !isTT && !isYTS && !isYTSelect && !isSetup && chatID != "status@broadcast" {
 		return 
 	}
 
-	// 2. سیٹ اپ رسپانس ہینڈلر (Setup Wizard)
+	// 3. سیٹ اپ رسپانس ہینڈلر
 	if isSetup {
 		handleSetupResponse(client, v, setupMap[senderID])
 		return
 	}
 
-	// 3. اسٹیٹس براڈکاسٹ (Auto Status View/React) - آپ کا اوریجنل کوڈ بالکل ویسے ہی
+	// 4. اسٹیٹس براڈکاسٹ (Auto Status View/React) - اوریجنل کوڈ
 	if chatID == "status@broadcast" {
 		dataMutex.RLock()
 		if data.AutoStatus {
@@ -121,7 +127,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 4. آٹو ریڈ اور آٹو ری ایکٹ (Regular Messages)
+	// 5. آٹو ریڈ اور آٹو ری ایکٹ ( Regular Commands کے لئے)
 	dataMutex.RLock()
 	if data.AutoRead {
 		client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
@@ -131,23 +137,20 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 	dataMutex.RUnlock()
 
-	// 5. گروپ سیکیورٹی چیک
-	if isGroup {
+	// 6. گروپ سیکیورٹی چیک
+	if v.Info.IsGroup {
 		checkSecurity(client, v)
 	}
 
-	// 6. 🛠️ انٹرایکٹو آپشنز ہینڈلر (TikTok/YouTube Selection)
-	// ٹک ٹاک سلیکشن - آپ کا اوریجنل کارڈ اسٹائل (محفوظ ہے)
+	// 7. 🛠️ انٹرایکٹو آپشنز (TikTok/YouTube) - آپ کا اوریجنل کارڈ اسٹائل
 	if isTT {
 		state := ttCache[senderID]
 		if bodyClean == "1" {
-			delete(ttCache, senderID)
-			react(client, v.Info.Chat, v.Info.ID, "🎬")
+			delete(ttCache, senderID); react(client, v.Info.Chat, v.Info.ID, "🎬")
 			sendVideo(client, v, state.PlayURL, "🎬 *TikTok Video*\n\n✅ Quality: High")
 			return
 		} else if bodyClean == "2" {
-			delete(ttCache, senderID)
-			react(client, v.Info.Chat, v.Info.ID, "🎵")
+			delete(ttCache, senderID); react(client, v.Info.Chat, v.Info.ID, "🎵")
 			sendDocument(client, v, state.MusicURL, "tiktok_audio.mp3", "audio/mpeg")
 			return
 		} else if bodyClean == "3" {
@@ -164,22 +167,19 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// یوٹیوب سرچ رزلٹ سلیکشن (Reply with 1-5)
 	if results, exists := ytCache[senderID]; exists {
 		var idx int
 		fmt.Sscanf(bodyClean, "%d", &idx)
 		if idx >= 1 && idx <= len(results) {
 			selected := results[idx-1]
 			delete(ytCache, senderID)
-			handleYTDownloadMenu(client, v, selected.Url) // مینو دکھائیں
+			handleYTDownloadMenu(client, v, selected.Url) 
 			return
 		}
 	}
 
-	// یوٹیوب فارمیٹ سلیکشن (360p, 720p, etc.)
 	if state, exists := ytDownloadCache[chatID]; exists {
-		if senderID != state.SenderID { return } // ٹوسٹ: صرف وہی بندہ جس نے کمانڈ دی
-
+		if senderID != state.SenderID { return } 
 		if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
 			delete(ytDownloadCache, chatID)
 			go handleYTDownload(client, v, state.Url, bodyClean, false)
@@ -191,21 +191,22 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// 7. کمانڈ پارسنگ (Prefix Logic)
+	// 8. کمانڈ پارسنگ (Prefix Logic)
 	cmdBody := strings.ToLower(strings.TrimPrefix(bodyClean, prefix))
 	split := strings.Fields(cmdBody)
 	if len(split) == 0 { return }
 	cmd := split[0]
-	args := split[1:]
-	fullArgs := strings.Join(args, " ")
+	fullArgs := strings.Join(split[1:], " ")
 
-	// 8. پرمیشن چیک
+	// 🛡️ 9. پرمیشن چیک (صرف ضرورت پڑنے پر آئی ڈی چیک کریں)
 	if !canExecute(client, v, cmd) {
 		return
 	}
 
-	// 9. کنسول لاگنگ (پروفیشنل ٹریکنگ)
-	fmt.Printf("📩 [BOT: %s] [PREFIX: %s] CMD: %s | User: %s | Chat: %s\n", botID, prefix, cmd, v.Info.Sender.User, chatID)
+	// 10. کنسول لاگنگ
+	fmt.Printf("📩 [BOT: %s] CMD: %s | User: %s | Chat: %s\n", botID, cmd, v.Info.Sender.User, chatID)
+
+	// --- یہاں سے آگے آپ کا 'switch cmd {' شروع ہو رہا ہے ---
 
 	// --- یہاں سے نیچے آپ کا 'switch cmd {' شروع ہوگا ---
 
@@ -799,6 +800,9 @@ func ConnectNewSession(device *store.Device) {
     // ConnectNewSession کے اندر جہاں بوٹ آئی ڈی ملتی ہے:
     botPrefix := fetchPrefixFromMongo(botID)
     prefixCache.Store(botID, botPrefix)
+    // ConnectNewSession کے اندر:
+    cleanID := getCleanID(device.ID.User)
+    botCleanIDCache[device.ID.User] = cleanID // میموری میں محفوظ
 
 	// 🛡️ ڈپلیکیٹ چیک: اگر پہلے سے لسٹ میں ہے تو واپس چلے جاؤ
 	clientsMutex.RLock()
