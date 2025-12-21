@@ -77,7 +77,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	senderID := v.Info.Sender.String()
 	isGroup := v.Info.IsGroup
 	bodyRaw := getText(v.Message)
-	bodyClean := strings.TrimSpace(bodyRaw)
+	
+// 🛠️ یوٹیوب اور ٹک ٹاک سلیکشن ہینڈلر
+	bodyClean := strings.TrimSpace(getText(v.Message))
+
+	// 1. یوٹیوب سرچ رزلٹ سلیکشن (Reply with 1-5)
+
 
 	// 2. سیٹ اپ رسپانس ہینڈلر
 	if state, ok := setupMap[senderID]; ok && state.GroupID == chatID {
@@ -144,28 +149,28 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// یوٹیوب سلیکشن (اگر آپ نے ytCache بنایا ہوا ہے تو یہ کام کرے گا)
 	if results, exists := ytCache[senderID]; exists {
 		var idx int
 		fmt.Sscanf(bodyClean, "%d", &idx)
 		if idx >= 1 && idx <= len(results) {
 			selected := results[idx-1]
-			msg := fmt.Sprintf("🎥 *Selected:* %s\n\n[1] 🎬 Video (MP4)\n[2] 🎵 Audio (MP3)", selected.Title)
-			delete(ytCache, senderID)
-			ytCache[senderID+"_final"] = []YTSResult{{Title: selected.Title, Url: selected.Url}}
-			replyMessage(client, v, msg)
+			delete(ytCache, senderID) // سرچ کیش صاف کریں
+			handleYTDownloadMenu(client, v, selected.Url) // مینو دکھائیں
 			return
 		}
 	}
 
-	if finalData, exists := ytCache[senderID+"_final"]; exists {
-		if bodyClean == "1" {
-			delete(ytCache, senderID+"_final")
-			handleYTDownload(client, v, finalData[0].Url, true)
+	// 2. یوٹیوب فارمیٹ سلیکشن (360p, 720p, etc.)
+	if state, exists := ytDownloadCache[chatID]; exists {
+		if v.Info.Sender.String() != state.SenderID { return } // صرف وہی بندہ جس نے کمانڈ دی
+
+		if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
+			delete(ytDownloadCache, chatID)
+			go handleYTDownload(client, v, state.Url, bodyClean, false)
 			return
-		} else if bodyClean == "2" {
-			delete(ytCache, senderID+"_final")
-			handleYTDownload(client, v, finalData[0].Url, false)
+		} else if bodyClean == "4" {
+			delete(ytDownloadCache, chatID)
+			go handleYTDownload(client, v, state.Url, "mp3", true)
 			return
 		}
 	}
