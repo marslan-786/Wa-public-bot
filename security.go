@@ -77,7 +77,7 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 	switch action {
 	case "delete":
 		// ✅ Delete for everyone
-		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, types.EmptyJID, v.Info.ID))
+		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, v.Info.Sender, v.Info.ID))
 		if err != nil {
 			log.Printf("❌ Delete failed: %v", err)
 			msg := `╔════════════════╗
@@ -112,7 +112,7 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 
 	case "deletekick":
 		// ✅ Delete for everyone
-		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, types.EmptyJID, v.Info.ID))
+		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, v.Info.Sender, v.Info.ID))
 		if err != nil {
 			log.Printf("❌ Delete failed: %v", err)
 			msg := `╔════════════════╗
@@ -166,7 +166,7 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 		warnCount := s.Warnings[senderKey]
 
 		// ✅ Delete for everyone
-		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, types.EmptyJID, v.Info.ID))
+		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, v.Info.Sender, v.Info.ID))
 		if err != nil {
 			log.Printf("❌ Delete failed: %v", err)
 			msg := `╔════════════════╗
