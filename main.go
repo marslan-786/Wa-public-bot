@@ -75,7 +75,10 @@ func main() {
 	client = whatsmeow.NewClient(deviceStore, waLog.Stdout("Client", "INFO", true))
 	
 	SetGlobalClient(client)
-	client.AddEventHandler(handler)
+	client.AddEventHandler(func(evt interface{}) {
+    handler(client, evt)
+})
+
 
 	InitLIDSystem()
 	loadDataFromMongo()
@@ -196,7 +199,9 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 	tempClient := whatsmeow.NewClient(newDevice, waLog.Stdout("Pairing", "INFO", true))
 	
 	SetGlobalClient(tempClient)
-	tempClient.AddEventHandler(handler)
+	tempClient.AddEventHandler(func(evt interface{}) {
+        handler(tempClient, evt)
+    })
 
 	err := tempClient.Connect()
 	if err != nil {
@@ -278,7 +283,9 @@ func handlePairAPILegacy(w http.ResponseWriter, r *http.Request) {
 	tempClient := whatsmeow.NewClient(newDevice, waLog.Stdout("Pairing", "INFO", true))
 	
 	SetGlobalClient(tempClient)
-	tempClient.AddEventHandler(handler)
+	tempClient.AddEventHandler(func(evt interface{}) {
+        handler(tempClient, evt)
+    })
 
 	err := tempClient.Connect()
 	if err != nil {
