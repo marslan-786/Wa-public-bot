@@ -185,8 +185,8 @@ func handleGoogle(client *whatsmeow.Client, v *events.Message, query string) {
 func handleToPTT(client *whatsmeow.Client, v *events.Message) {
 	// چیک کریں کہ کیا آڈیو کو ریپلائی کیا گیا ہے
 	msg := v.Message
-	if v.Message.GetContextInfo() != nil && v.Message.GetContextInfo().QuotedMessage != nil {
-		msg = v.Message.GetContextInfo().QuotedMessage
+	if v.Info.QuotedMessage() != nil && v.Info.QuotedMessage().QuotedMessage != nil {
+		msg = v.Info.QuotedMessage().QuotedMessage
 	}
 
 	audio := msg.GetAudioMessage()
@@ -231,7 +231,7 @@ func handleToPTT(client *whatsmeow.Client, v *events.Message) {
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 			FileLength:    proto.Uint64(uint64(len(pttData))),
-			Ptt:           proto.Bool(true), // یہ اسے ہرا مائیک والا وائس نوٹ بناتا ہے
+			PTT:           proto.Bool(true), // یہ اسے ہرا مائیک والا وائس نوٹ بناتا ہے
 		},
 	})
 
@@ -250,8 +250,8 @@ func handleTed(client *whatsmeow.Client, v *events.Message, url string) {
 func handleRemoveBG(client *whatsmeow.Client, v *events.Message) {
 	// 1. چیک کریں کہ کیا کسی تصویر کو ریپلائی کیا گیا ہے
 	msg := v.Message
-	if v.Message.GetContextInfo() != nil && v.Message.GetContextInfo().QuotedMessage != nil {
-		msg = v.Message.GetContextInfo().QuotedMessage
+	if v.Info.QuotedMessage() != nil && v.Info.QuotedMessage().QuotedMessage != nil {
+		msg = v.Info.QuotedMessage().QuotedMessage
 	}
 
 	img := msg.GetImageMessage()
@@ -303,4 +303,15 @@ func handleRemoveBG(client *whatsmeow.Client, v *events.Message) {
 			Caption:       proto.String("✅ *Background Removed by Impossible Power*"),
 		},
 	})
+}
+// 🎮 STEAM ہینڈلر
+func handleSteam(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Steam Media", "Steam", "🎮 Fetching game trailer...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+// 🚀 MEGA / UNIVERSAL ہینڈلر
+func handleMega(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Mega Engine", "Universal", "🚀 Processing heavy media link...")
+	go downloadAndSend(client, v, url, "video")
 }
