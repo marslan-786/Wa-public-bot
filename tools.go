@@ -420,10 +420,10 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 
 	if v.Message.ExtendedTextMessage == nil {
 		msg := `╔════════════════╗
-║ ⚠️ VIEWONCE REVEAL       
+║    ⚠️ ViewOnce       
 ╠════════════════╣
-║  Reply to a ViewOnce      
-║  message to reveal it     
+║  Reply to any media      
+║  message to send it     
 ╚════════════════╝`
 		replyMessage(client, v, msg)
 		return
@@ -432,32 +432,30 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 	quoted := v.Message.ExtendedTextMessage.GetContextInfo().GetQuotedMessage()
 	if quoted == nil {
 		msg := `╔═══════════════════╗
-║ ❌ NO VIEWONCE FOUND     
+║ ❌ NO MESSAGE FOUND     
 ╠═══════════════════╣
-║  Reply to ViewOnce media  
+║  Reply to a media message  
 ╚═══════════════════╝`
 		replyMessage(client, v, msg)
 		return
 	}
 
-	data, err := downloadMedia(client, &waProto.Message{
-		ImageMessage:      quoted.ImageMessage,
-		VideoMessage:      quoted.VideoMessage,
-		ViewOnceMessage:   quoted.ViewOnceMessage,
-		ViewOnceMessageV2: quoted.ViewOnceMessageV2,
-	})
+	data, err := downloadMedia(client, quoted)
 
 	if err != nil {
 		errMsg := `╔═════════════════╗
 ║ ❌ DOWNLOAD FAILED       
 ╠════════════════════╣
-║  Could not reveal ViewOnce
+║  Could not send media
 ╚════════════════════╝`
 		replyMessage(client, v, errMsg)
 		return
 	}
 
-	if quoted.ImageMessage != nil || (quoted.ViewOnceMessage != nil && quoted.ViewOnceMessage.Message.ImageMessage != nil) {
+	// Check for image
+	if quoted.ImageMessage != nil || 
+	   (quoted.ViewOnceMessage != nil && quoted.ViewOnceMessage.Message.ImageMessage != nil) ||
+	   (quoted.ViewOnceMessageV2 != nil && quoted.ViewOnceMessageV2.Message.ImageMessage != nil) {
 		up, _ := client.Upload(context.Background(), data, whatsmeow.MediaImage)
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			ImageMessage: &waProto.ImageMessage{
@@ -467,7 +465,7 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 				FileEncSHA256: up.FileEncSHA256,
 				FileSHA256:    up.FileSHA256,
 				Mimetype:      proto.String("image/jpeg"),
-				Caption:       proto.String("🫣 ViewOnce Revealed\n\n✅ Successfully Retrieved"),
+				Caption:       proto.String("🫣 Media Copied\n\n✅ Successfully Retrieved"),
 				ContextInfo: &waProto.ContextInfo{
 					StanzaID:      proto.String(v.Info.ID),
 					Participant:   proto.String(v.Info.Sender.String()),
@@ -475,7 +473,9 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 				},
 			},
 		})
-	} else {
+	} else if quoted.VideoMessage != nil || 
+	          (quoted.ViewOnceMessage != nil && quoted.ViewOnceMessage.Message.VideoMessage != nil) ||
+	          (quoted.ViewOnceMessageV2 != nil && quoted.ViewOnceMessageV2.Message.VideoMessage != nil) {
 		up, _ := client.Upload(context.Background(), data, whatsmeow.MediaVideo)
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			VideoMessage: &waProto.VideoMessage{
@@ -485,7 +485,7 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 				FileEncSHA256: up.FileEncSHA256,
 				FileSHA256:    up.FileSHA256,
 				Mimetype:      proto.String("video/mp4"),
-				Caption:       proto.String("🫣 ViewOnce Revealed\n\n✅ Successfully Retrieved"),
+				Caption:       proto.String("🫣 Media Copied\n\n✅ Successfully Retrieved"),
 				ContextInfo: &waProto.ContextInfo{
 					StanzaID:      proto.String(v.Info.ID),
 					Participant:   proto.String(v.Info.Sender.String()),
@@ -493,6 +493,13 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 				},
 			},
 		})
+	} else {
+		msg := `╔═══════════════════╗
+║ ❌ NO MEDIA FOUND     
+╠═══════════════════╣
+║  Reply to image/video  
+╚═══════════════════╝`
+		replyMessage(client, v, msg)
 	}
 }
 
