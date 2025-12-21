@@ -415,7 +415,7 @@ func getFormattedUptime() string {
 
 
 func sendMenu(client *whatsmeow.Client, v *events.Message) {
-	uptimeStr := getFormattedUptime()
+	uptimeStr := getFormattedUptime() // ہم نے یہ ویری ایبل بنایا
 	dataMutex.RLock()
 	p := data.Prefix
 	dataMutex.RUnlock()
@@ -429,8 +429,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 	menu := fmt.Sprintf(`╔═════════════════╗
 ║   %s   
 ╠═════════════════╣
-║ 👋 *Assalam-o-Alaikum*     
-║ 👑 *Owner:* %s             
+║ 👋 *Assalam-o-Alaikum* ║ 👑 *Owner:* %s             
 ║ 🛡️ *Mode:* %s              
 ║ ⏳ *Uptime:* %s            
 ╠═════════════════╣
@@ -455,22 +454,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║  ╰───────────────────╯
 ║                           
 ║  ╭──── SETTINGS ───╮
-║  │ 🔸 *%saddstatus*       
-║  │ 🔸 *%salwaysonline*     
-║  │ 🔸 *%santilink*         
-║  │ 🔸 *%santipic*         
-║  │ 🔸 *%santisticker*     
-║  │ 🔸 *%santivideo*        
-║  │ 🔸 *%sautoreact*    
-║  │ 🔸 *%sautoread*      
-║  │ 🔸 *%sautostatus*   
-║  │ 🔸 *%sdelstatus*    
-║  │ 🔸 *%sliststatus*   
-║  │ 🔸 *%smode*      
-║  │ 🔸 *%sowner*     
-║  │ 🔸 *%sreadallstatus* 
-║  │ 🔸 *%sstatusreact*  
-║  ╰─────────────────╯
+║  │ 🔸 *%saddstatus* ║  │ 🔸 *%salwaysonline* ║  │ 🔸 *%santilink* ║  │ 🔸 *%santipic* ║  │ 🔸 *%santisticker* ║  │ 🔸 *%santivideo* ║  │ 🔸 *%sautoreact* ║  │ 🔸 *%sautoread* ║  │ 🔸 *%sautostatus* ║  │ 🔸 *%sdelstatus* ║  │ 🔸 *%sliststatus* ║  │ 🔸 *%smode* ║  │ 🔸 *%sowner* ║  │ 🔸 *%sreadallstatus* ║  │ 🔸 *%sstatusreact* ║  ╰─────────────────╯
 ║                           
 ║  ╭─────── TOOLS ───────╮
 ║  │ 🔸 *%sdata* - DB Status
@@ -491,7 +475,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ╠═════════════════════╣
 ║ © 2025 Nothing is Impossible 
 ╚═════════════════════╝`,
-		BOT_NAME, OWNER_NAME, currentMode, uptime,
+		BOT_NAME, OWNER_NAME, currentMode, uptimeStr, // یہاں ہم نے uptimeStr استعمال کر لیا
 		p, p, p, p, p, p,
 		p, p, p, p, p, p, p,
 		p, p, p, p, p, p, p, p, p, p, p, p, p, p, p,
@@ -508,6 +492,8 @@ func sendPing(client *whatsmeow.Client, v *events.Message) {
 	start := time.Now()
 	time.Sleep(10 * time.Millisecond)
 	ms := time.Since(start).Milliseconds()
+	
+	// ہم نے اپ ٹائم کا فارمیٹڈ ورژن حاصل کیا
 	uptimeStr := getFormattedUptime()
 
 	msg := fmt.Sprintf(`╔════════════════╗
@@ -518,10 +504,11 @@ func sendPing(client *whatsmeow.Client, v *events.Message) {
 ║ 👑 Dev: %s
 ╠════════════════╣
 ║ 🟢 System Running
-╚════════════════╝`, ms, uptime, OWNER_NAME)
+╚════════════════╝`, ms, uptimeStr, OWNER_NAME) // یہاں uptime کی جگہ uptimeStr کر دیا
 
 	sendReplyMessage(client, v, msg)
 }
+
 
 func sendID(client *whatsmeow.Client, v *events.Message) {
 	user := v.Info.Sender.User
@@ -763,7 +750,6 @@ func monitorNewSessions(container *sqlstore.Container) {
 }
 
 func handleSessionDelete(client *whatsmeow.Client, v *events.Message, args []string) {
-	// 1. صرف اونر ہی سیشن ڈیلیٹ کر سکتا ہے
 	if !isOwner(client, v.Info.Sender) {
 		replyMessage(client, v, "╔═══════════════════╗\n║ 👑 OWNER ONLY      \n╠═══════════════════╣\n║ You don't have    \n║ permission.       \n╚═══════════════════╝")
 		return
@@ -775,7 +761,6 @@ func handleSessionDelete(client *whatsmeow.Client, v *events.Message, args []str
 	}
 
 	targetNumber := args[0]
-	// جے آئی ڈی (JID) تیار کریں
 	targetJID, ok := parseJID(targetNumber)
 	if !ok {
 		replyMessage(client, v, "❌ Invalid number format.")
@@ -783,43 +768,36 @@ func handleSessionDelete(client *whatsmeow.Client, v *events.Message, args []str
 	}
 
 	fmt.Printf("\n--- [SESSION DELETE START] ---\n")
-	fmt.Printf("🗑️ Target: %s\n", targetJID.String())
-
-	// 2. چیک کریں کہ کیا بوٹ ایکٹو لسٹ میں ہے؟
+	
 	clientsMutex.Lock()
 	targetClient, exists := activeClients[getCleanID(targetNumber)]
 	if exists {
-		fmt.Println("🔌 Disconnecting active client...")
 		targetClient.Disconnect()
 		delete(activeClients, getCleanID(targetNumber))
 	}
 	clientsMutex.Unlock()
 
-	// 3. ڈیٹا بیس سے سیشن ڈیلیٹ کریں
 	if dbContainer == nil {
-		fmt.Println("❌ Error: DB Container is nil")
 		replyMessage(client, v, "❌ Database connection error.")
 		return
 	}
 
-	// ڈیٹا بیس سے ڈیوائس ڈھونڈ کر ڈیلیٹ کریں
-	device, err := dbContainer.GetDevice(targetJID)
+	// ✅ یہاں context.Background() شامل کیا ہے
+	device, err := dbContainer.GetDevice(context.Background(), targetJID)
 	if err != nil || device == nil {
-		fmt.Printf("❌ Could not find session in DB: %v\n", err)
 		replyMessage(client, v, "❌ Session not found in database.")
 		return
 	}
 
-	err = device.Delete()
+	// ✅ یہاں بھی context.Background() شامل کیا ہے
+	err = device.Delete(context.Background())
 	if err != nil {
 		fmt.Printf("❌ DB Delete Error: %v\n", err)
 		replyMessage(client, v, "❌ Failed to delete session from DB.")
 	} else {
-		fmt.Println("✅ Session permanently deleted from DB.")
 		msg := fmt.Sprintf("╔═══════════════════╗\n║ 🗑️ SESSION DELETED  \n╠═══════════════════╣\n║ Number: %s\n║ Status: REMOVED   \n║ Action: Rescan QR \n╚═══════════════════╝", targetNumber)
 		replyMessage(client, v, msg)
 	}
-	fmt.Printf("--- [SESSION DELETE END] ---\n")
 }
 
 // مددگار فنکشن نمبر کو JID میں بدلنے کے لیے
