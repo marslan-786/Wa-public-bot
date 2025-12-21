@@ -3,14 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
 )
+
+// ==================== ڈاؤن لوڈر سسٹم ====================
 
 func handleTikTok(client *whatsmeow.Client, v *events.Message, url string) {
 	if url == "" {
@@ -44,18 +48,12 @@ func handleTikTok(client *whatsmeow.Client, v *events.Message, url string) {
 		} `json:"data"`
 	}
 	var r R
-	getJson("https://www.tikwm.com/api/?url="+url, &r)
+	err := getJson("https://www.tikwm.com/api/?url="+url, &r)
 	
-	if r.Data.Play != "" {
-		sendVideo(client, v, r.Data.Play, "🎵 TikTok Video\n✅ Downloaded")
+	if err == nil && r.Data.Play != "" {
+		sendVideo(client, v, r.Data.Play, "🎵 *TikTok Video*\n✅ Successfully Downloaded")
 	} else {
-		errMsg := `╔═══════════════╗
-║ ❌ FAILED
-╠═══════════════
-║ Check URL and
-║ try again
-╚═══════════════`
-		replyMessage(client, v, errMsg)
+		replyMessage(client, v, "╔═══════════════╗\n║ ❌ FAILED\n╠═══════════════\n║ Download failed.\n║ Check URL.\n╚═══════════════")
 	}
 }
 
@@ -92,18 +90,12 @@ func handleFacebook(client *whatsmeow.Client, v *events.Message, url string) {
 		Status bool `json:"status"`
 	}
 	var r R
-	getJson("https://bk9.fun/downloader/facebook?url="+url, &r)
+	err := getJson("https://bk9.fun/downloader/facebook?url="+url, &r)
 	
-	if r.Status {
-		sendVideo(client, v, r.BK9.HD, "📘 Facebook Video\n✅ Downloaded")
+	if err == nil && r.BK9.HD != "" {
+		sendVideo(client, v, r.BK9.HD, "📘 *Facebook Video*\n✅ Successfully Downloaded")
 	} else {
-		errMsg := `╔═══════════════╗
-║ ❌ FAILED
-╠═══════════════
-║ Check URL and
-║ try again
-╚═══════════════`
-		replyMessage(client, v, errMsg)
+		replyMessage(client, v, "╔═══════════════╗\n║ ❌ FAILED\n╠═══════════════\n║ Could not fetch\n║ video. Try HD.\n╚═══════════════")
 	}
 }
 
@@ -135,23 +127,17 @@ func handleInstagram(client *whatsmeow.Client, v *events.Message, url string) {
 	replyMessage(client, v, msg)
 
 	type R struct {
-		Video struct {
+		Data []struct {
 			Url string `json:"url"`
-		} `json:"video"`
+		} `json:"data"`
 	}
 	var r R
-	getJson("https://api.tiklydown.eu.org/api/download?url="+url, &r)
+	err := getJson("https://bk9.fun/downloader/instagram?url="+url, &r)
 	
-	if r.Video.Url != "" {
-		sendVideo(client, v, r.Video.Url, "📸 Instagram Video\n✅ Downloaded")
+	if err == nil && len(r.Data) > 0 {
+		sendVideo(client, v, r.Data[0].Url, "📸 *Instagram Video*\n✅ Successfully Downloaded")
 	} else {
-		errMsg := `╔═══════════════╗
-║ ❌ FAILED
-╠═══════════════
-║ Check URL and
-║ try again
-╚═══════════════`
-		replyMessage(client, v, errMsg)
+		replyMessage(client, v, "╔═══════════════╗\n║ ❌ FAILED\n╠═══════════════\n║ Private account\n║ or invalid link.\n╚═══════════════")
 	}
 }
 
@@ -162,10 +148,6 @@ func handlePinterest(client *whatsmeow.Client, v *events.Message, url string) {
 ╠═══════════════
 ║ Usage:
 ║ .pin <url>
-║
-║ Example:
-║ .pin https://
-║ pin.it/xxxxx
 ╚═══════════════`
 		replyMessage(client, v, msg)
 		return
@@ -177,57 +159,31 @@ func handlePinterest(client *whatsmeow.Client, v *events.Message, url string) {
 ║ 📌 PROCESSING
 ╠═══════════════
 ║ ⏳ Downloading
-║ Please wait...
 ╚═══════════════`
 	replyMessage(client, v, msg)
 
 	type R struct {
-		BK9 struct {
-			Url string `json:"url"`
-		} `json:"BK9"`
-		Status bool `json:"status"`
+		BK9    string `json:"BK9"`
+		Status bool   `json:"status"`
 	}
 	var r R
 	getJson("https://bk9.fun/downloader/pinterest?url="+url, &r)
 	
-	if r.Status {
-		sendImage(client, v, r.BK9.Url, "📌 Pinterest Image\n✅ Downloaded")
+	if r.BK9 != "" {
+		sendImage(client, v, r.BK9, "📌 *Pinterest Image*\n✅ Downloaded")
 	} else {
-		errMsg := `╔═══════════════╗
-║ ❌ FAILED
-╠═══════════════
-║ Check URL and
-║ try again
-╚═══════════════`
-		replyMessage(client, v, errMsg)
+		replyMessage(client, v, "❌ Pinterest download failed.")
 	}
 }
 
 func handleYouTubeMP3(client *whatsmeow.Client, v *events.Message, url string) {
 	if url == "" {
-		msg := `╔═══════════════╗
-║ 🎵 YOUTUBE MP3
-╠═══════════════
-║ Usage:
-║ .ytmp3 <url>
-║
-║ Example:
-║ .ytmp3 https://
-║ youtu.be/xxxxx
-╚═══════════════`
-		replyMessage(client, v, msg)
+		replyMessage(client, v, "⚠️ Please provide YouTube URL.")
 		return
 	}
 
 	react(client, v.Info.Chat, v.Info.ID, "🎵")
-	
-	msg := `╔═══════════════╗
-║ 🎵 PROCESSING
-╠═══════════════
-║ ⏳ Downloading
-║ Please wait...
-╚═══════════════`
-	replyMessage(client, v, msg)
+	replyMessage(client, v, "⏳ *Downloading MP3...*")
 
 	type R struct {
 		BK9 struct {
@@ -238,44 +194,21 @@ func handleYouTubeMP3(client *whatsmeow.Client, v *events.Message, url string) {
 	var r R
 	getJson("https://bk9.fun/downloader/youtube?url="+url, &r)
 	
-	if r.Status {
+	if r.BK9.Mp3 != "" {
 		sendDocument(client, v, r.BK9.Mp3, "audio.mp3", "audio/mpeg")
 	} else {
-		errMsg := `╔═══════════════╗
-║ ❌ FAILED
-╠═══════════════
-║ Check URL and
-║ try again
-╚═══════════════`
-		replyMessage(client, v, errMsg)
+		replyMessage(client, v, "❌ YouTube MP3 failed.")
 	}
 }
 
 func handleYouTubeMP4(client *whatsmeow.Client, v *events.Message, url string) {
 	if url == "" {
-		msg := `╔═══════════════╗
-║ 📺 YOUTUBE MP4
-╠═══════════════
-║ Usage:
-║ .ytmp4 <url>
-║
-║ Example:
-║ .ytmp4 https://
-║ youtu.be/xxxxx
-╚═══════════════`
-		replyMessage(client, v, msg)
+		replyMessage(client, v, "⚠️ Please provide YouTube URL.")
 		return
 	}
 
 	react(client, v.Info.Chat, v.Info.ID, "📺")
-	
-	msg := `╔═══════════════╗
-║ 📺 PROCESSING
-╠═══════════════
-║ ⏳ Downloading
-║ Please wait...
-╚═══════════════`
-	replyMessage(client, v, msg)
+	replyMessage(client, v, "⏳ *Downloading Video...*")
 
 	type R struct {
 		BK9 struct {
@@ -286,18 +219,14 @@ func handleYouTubeMP4(client *whatsmeow.Client, v *events.Message, url string) {
 	var r R
 	getJson("https://bk9.fun/downloader/youtube?url="+url, &r)
 	
-	if r.Status {
-		sendVideo(client, v, r.BK9.Mp4, "📺 YouTube Video\n✅ Downloaded")
+	if r.BK9.Mp4 != "" {
+		sendVideo(client, v, r.BK9.Mp4, "📺 *YouTube Video*\n✅ Downloaded")
 	} else {
-		errMsg := `╔═══════════════╗
-║ ❌ FAILED
-╠═══════════════
-║ Check URL and
-║ try again
-╚═══════════════`
-		replyMessage(client, v, errMsg)
+		replyMessage(client, v, "❌ YouTube MP4 failed.")
 	}
 }
+
+// ==================== مددگار فنکشنز (Helpers) ====================
 
 func getJson(url string, target interface{}) error {
 	r, err := http.Get(url)
@@ -308,23 +237,29 @@ func getJson(url string, target interface{}) error {
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
-func sendVideo(client *whatsmeow.Client, v *events.Message, url, caption string) {
-	r, err := http.Get(url)
+func sendVideo(client *whatsmeow.Client, v *events.Message, videoURL, caption string) {
+	resp, err := http.Get(videoURL)
 	if err != nil {
-		replyMessage(client, v, "❌ Failed to download")
+		fmt.Printf("❌ [VIDEO-ERR] Fetch failed: %v\n", err)
 		return
 	}
-	d, _ := ioutil.ReadAll(r.Body)
-	up, _ := client.Upload(context.Background(), d, whatsmeow.MediaVideo)
-	
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+	if len(data) == 0 { return }
+
+	up, err := client.Upload(context.Background(), data, whatsmeow.MediaVideo)
+	if err != nil { return }
+
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		VideoMessage: &waProto.VideoMessage{
 			URL:           proto.String(up.URL),
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,
-			FileEncSHA256: up.FileEncSHA256,
-			FileSHA256:    up.FileSHA256,
 			Mimetype:      proto.String("video/mp4"),
+			FileSHA256:    up.FileSHA256,
+			FileEncSHA256: up.FileEncSHA256,
+			FileLength:    proto.Uint64(uint64(len(data))), // ✅ Delivery Fix
 			Caption:       proto.String(caption),
 			ContextInfo: &waProto.ContextInfo{
 				StanzaID:      proto.String(v.Info.ID),
@@ -335,23 +270,23 @@ func sendVideo(client *whatsmeow.Client, v *events.Message, url, caption string)
 	})
 }
 
-func sendImage(client *whatsmeow.Client, v *events.Message, url, caption string) {
-	r, err := http.Get(url)
-	if err != nil {
-		replyMessage(client, v, "❌ Failed to download")
-		return
-	}
-	d, _ := ioutil.ReadAll(r.Body)
-	up, _ := client.Upload(context.Background(), d, whatsmeow.MediaImage)
+func sendImage(client *whatsmeow.Client, v *events.Message, imageURL, caption string) {
+	resp, err := http.Get(imageURL)
+	if err != nil { return }
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+	up, _ := client.Upload(context.Background(), data, whatsmeow.MediaImage)
 	
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		ImageMessage: &waProto.ImageMessage{
 			URL:           proto.String(up.URL),
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,
-			FileEncSHA256: up.FileEncSHA256,
-			FileSHA256:    up.FileSHA256,
 			Mimetype:      proto.String("image/jpeg"),
+			FileSHA256:    up.FileSHA256,
+			FileEncSHA256: up.FileEncSHA256,
+			FileLength:    proto.Uint64(uint64(len(data))), // ✅ Delivery Fix
 			Caption:       proto.String(caption),
 			ContextInfo: &waProto.ContextInfo{
 				StanzaID:      proto.String(v.Info.ID),
@@ -362,25 +297,25 @@ func sendImage(client *whatsmeow.Client, v *events.Message, url, caption string)
 	})
 }
 
-func sendDocument(client *whatsmeow.Client, v *events.Message, url, name, mime string) {
-	r, err := http.Get(url)
-	if err != nil {
-		replyMessage(client, v, "❌ Failed to download")
-		return
-	}
-	d, _ := ioutil.ReadAll(r.Body)
-	up, _ := client.Upload(context.Background(), d, whatsmeow.MediaDocument)
+func sendDocument(client *whatsmeow.Client, v *events.Message, docURL, name, mime string) {
+	resp, err := http.Get(docURL)
+	if err != nil { return }
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+	up, _ := client.Upload(context.Background(), data, whatsmeow.MediaDocument)
 	
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		DocumentMessage: &waProto.DocumentMessage{
 			URL:           proto.String(up.URL),
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,
-			FileEncSHA256: up.FileEncSHA256,
-			FileSHA256:    up.FileSHA256,
 			Mimetype:      proto.String(mime),
 			FileName:      proto.String(name),
-			Caption:       proto.String("✅ Downloaded"),
+			FileSHA256:    up.FileSHA256,
+			FileEncSHA256: up.FileEncSHA256,
+			FileLength:    proto.Uint64(uint64(len(data))), // ✅ Delivery Fix
+			Caption:       proto.String("✅ *Successfully Downloaded*"),
 			ContextInfo: &waProto.ContextInfo{
 				StanzaID:      proto.String(v.Info.ID),
 				Participant:   proto.String(v.Info.Sender.String()),

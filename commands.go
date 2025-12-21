@@ -224,6 +224,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleVV(client, v)
     case "sd":
 		handleSessionDelete(client, v, args)
+    case "tiktok", "tt":
+        handleTikTok(client, v, fullArgs)
+    case "fb", "facebook":
+        handleFacebook(client, v, fullArgs)
+    case "insta", "ig":
+        handleInstagram(client, v, fullArgs)
 		
 	}
 }
