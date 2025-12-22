@@ -165,28 +165,43 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	// یوٹیوب سرچ انتخاب
-	if results, exists := ytCache[senderID]; exists {
-		var idx int
-		fmt.Sscanf(bodyClean, "%d", &idx)
-		if idx >= 1 && idx <= len(results) {
-			selected := results[idx-1]
-			delete(ytCache, senderID)
-			handleYTDownloadMenu(client, v, selected.Url) 
-			return
-		}
-	}
+// --- 📺 یوٹیوب سرچ اور ڈاؤنلوڈ ہینڈلنگ (Multi-Bot Proof) ---
+	extMsg := v.Message.GetExtendedTextMessage()
+	if extMsg != nil && extMsg.ContextInfo != nil {
+		quotedID := extMsg.ContextInfo.GetStanzaID()
 
-	// یوٹیوب فارمیٹ انتخاب
-	if state, exists := ytDownloadCache[chatID]; exists {
-		if senderID != state.SenderID { return } 
-		if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
-			delete(ytDownloadCache, chatID)
-			go handleYTDownload(client, v, state.Url, bodyClean, false)
-			return
-		} else if bodyClean == "4" {
-			delete(ytDownloadCache, chatID)
-			go handleYTDownload(client, v, state.Url, "mp3", true)
-			return
+		// 1️⃣ یوٹیوب سرچ رزلٹ کا انتخاب (ytCache)
+		if session, ok := ytCache[quotedID]; ok {
+			// چیک کریں: کیا یہ ریپلائی اسی بوٹ کے کارڈ پر ہے اور اسی یوزر نے کیا ہے؟
+			if session.BotLID == botID && session.SenderID == senderID {
+				var idx int
+				fmt.Sscanf(bodyClean, "%d", &idx)
+				if idx >= 1 && idx <= len(session.Results) {
+					fmt.Printf("🎯 [YTS MATCH] Bot %s processing selection for %s\n", botID, senderID)
+					selected := session.Results[idx-1]
+					delete(ytCache, quotedID) // سیشن ختم
+					handleYTDownloadMenu(client, v, selected.Url)
+					return
+				}
+			}
+		}
+
+		// 2️⃣ یوٹیوب فارمیٹ انتخاب (ytDownloadCache)
+		if state, ok := ytDownloadCache[quotedID]; ok {
+			// سیکیورٹی چیک: صرف وہی بوٹ جواب دے جس نے مینیو بھیجا تھا
+			if state.BotLID == botID && state.SenderID == senderID {
+				fmt.Printf("🎬 [YT-DL MATCH] Bot %s starting download for %s\n", botID, senderID)
+				
+				if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
+					delete(ytDownloadCache, quotedID)
+					go handleYTDownload(client, v, state.Url, bodyClean, false)
+					return
+				} else if bodyClean == "4" {
+					delete(ytDownloadCache, quotedID)
+					go handleYTDownload(client, v, state.Url, "mp3", true)
+					return
+				}
+			}
 		}
 	}
 

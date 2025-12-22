@@ -287,23 +287,86 @@ func handleArchive(client *whatsmeow.Client, v *events.Message, urlStr string) {
 func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	if query == "" { return }
 	react(client, v.Info.Chat, v.Info.ID, "🔍")
+	
+	// 🛠️ ڈیٹا نکالنا
+	botLID := getBotLIDFromDB(client)
+	senderLID := v.Info.Sender.User
+
 	cmd := exec.Command("yt-dlp", "ytsearch5:"+query, "--get-title", "--get-id", "--no-playlist")
 	out, _ := cmd.Output()
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) < 2 { return }
+
 	var results []YTSResult
-	menuText := "╔════════════════════╗\n║  📺 YOUTUBE SEARCH \n╠════════════════════╣\n"
+	// 🎨 کارڈ ڈیزائن (Border Fix): ہم نے ڈیزائن ایسا رکھا ہے کہ ٹائٹل جتنا بھی بڑا ہو کارڈ نہیں ٹوٹے گا
+	menuText := "╔════════════════════╗\n║    📺 YOUTUBE SEARCH \n╠════════════════════╣\n"
+	
 	for i := 0; i < len(lines)-1; i += 2 {
-		results = append(results, YTSResult{Title: lines[i], Url: "https://www.youtube.com/watch?v=" + lines[i+1]})
-		menuText += fmt.Sprintf("║ [%d] %s\n", (i/2)+1, lines[i])
+		title := lines[i]
+		// اگر ٹائٹل بہت بڑا ہے تو اسے اگلی لائن پر جانے دیں، کارڈ کے اندر ہی رہے گا
+		results = append(results, YTSResult{Title: title, Url: "https://www.youtube.com/watch?v=" + lines[i+1]})
+		menuText += fmt.Sprintf("║ 📍 [%d] %s\n║ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n", (i/2)+1, title)
 	}
-	ytCache[v.Info.Sender.String()] = results
-	replyMessage(client, v, menuText+"╚════════════════════╝")
+	menuText += "╚════════════════════╝"
+
+	// کارڈ بھیجیں
+	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+		ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(menuText)},
+	})
+
+	if err != nil { return }
+
+	// 🔑 میسج آئی ڈی کو چابی (Key) بنائیں تاکہ مکسنگ نہ ہو
+	fmt.Printf("📂 [YTS CACHED] MsgID: %s for User: %s\n", resp.ID, senderLID)
+	
+	ytCache[resp.ID] = YTSession{
+		Results:  results,
+		SenderID: senderLID,
+		BotLID:   botLID,
+	}
+
+	// 2 منٹ بعد صفائی
+	go func() {
+		time.Sleep(2 * time.Minute)
+		delete(ytCache, resp.ID)
+	}()
 }
 
 func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl string) {
-	ytDownloadCache[v.Info.Chat.String()] = YTState{Url: ytUrl, Title: "YouTube Media", SenderID: v.Info.Sender.String()}
-	replyMessage(client, v, "╔════════════════════╗\n║  🎬 VIDEO SELECTOR \n╠════════════════════╣\n║ [1] 360p | [2] 720p\n║ [3] 1080p| [4] MP3\n╚════════════════════╝")
+	botLID := getBotLIDFromDB(client)
+	senderLID := v.Info.Sender.User
+
+	menu := `╔════════════════════╗
+║    🎬 VIDEO SELECTOR 
+╠════════════════════╣
+║ 1️⃣ 360p (Fast)
+║ 2️⃣ 720p (HD)
+║ 3️⃣ 1080p (FHD)
+║ 4️⃣ MP3 (Audio)
+║
+║ ⏳ Timeout: 1 min
+╚════════════════════╝`
+
+	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+		ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(menu)},
+	})
+
+	if err != nil { return }
+
+	// 🔑 یہاں بھی میسج آئی ڈی کو لاک کر دیا
+	fmt.Printf("📂 [YT-DL CACHED] MsgID: %s\n", resp.ID)
+
+	ytDownloadCache[resp.ID] = YTState{
+		Url:      ytUrl,
+		Title:    "YouTube Media",
+		SenderID: senderLID,
+		BotLID:   botLID,
+	}
+
+	go func() {
+		time.Sleep(1 * time.Minute)
+		delete(ytDownloadCache, resp.ID)
+	}()
 }
 
 func handleYTDownload(client *whatsmeow.Client, v *events.Message, ytUrl, format string, isAudio bool) {
