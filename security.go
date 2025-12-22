@@ -443,66 +443,45 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, secType str
 }
 
 func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
-	// 🛑 قدم 1: سب سے پہلے پرنٹ کریں کہ میسج فنکشن تک پہنچا یا نہیں
-	// v.Info.Sender.User عام طور پر LID کا نمبر ہوتا ہے
-	incomingUser := v.Info.Sender.User 
-	
-	// یہ لائن ہر صورت لاگز میں پرنٹ ہوگی جیسے ہی تم "1" یا "2" لکھو گے
-	fmt.Printf("\n🔔 [EVENT TRIGGER] Message received from: %s\n", incomingUser)
-
-	// 🛑 قدم 2: ریپلائی (Quote) چیک کریں
+	// 🛑 ریپلائی چیک
 	extMsg := v.Message.GetExtendedTextMessage()
-	if extMsg == nil {
-		fmt.Println("❌ [DEBUG] This is NOT an ExtendedTextMessage (No Reply Context).")
-		return
-	}
-	if extMsg.ContextInfo == nil {
-		fmt.Println("❌ [DEBUG] ContextInfo is missing (Are you sure you quoted the card?).")
-		return
-	}
+	if extMsg == nil || extMsg.ContextInfo == nil { return }
 
 	quotedID := extMsg.ContextInfo.GetStanzaID()
+	incomingLID := v.Info.Sender.User // واٹس ایپ ہمیشہ LID بھیجتا ہے
 	botLID := getBotLIDFromDB(client)
 
-	fmt.Printf("📩 [LOG] REPLY DATA\n  ┃ Quoted ID: %s\n  ┃ Bot LID: %s\n", quotedID, botLID)
-
-	// 🛑 قدم 3: میپ میں آئی ڈی تلاش کریں
+	// 1. ڈیٹا تلاش کریں
 	state, exists := setupMap[quotedID]
-	if !exists {
-		fmt.Printf("⚠️ [DEBUG] Quoted ID %s not found in cache.\n", quotedID)
-		return
+	if !exists { return }
+
+	// 2. بوٹ میچنگ (صرف وہی بوٹ جواب دے جس کا کارڈ ہے)
+	if state.BotLID != botLID { return }
+
+	// 3. یوزر میچنگ (لاگز دکھائیں تاکہ پتہ چلے کیا میچ نہیں ہو رہا)
+	fmt.Printf("🔍 [COMPARING] StoredLID: %s | IncomingLID: %s\n", state.User, incomingLID)
+
+	// اگر آپ خود ہی بوٹ ہو تو یوزر چیک کو نرم کریں
+	if state.User != incomingLID {
+		fmt.Println("🚫 [REJECTED] User LID mismatch.")
+		// return // اگر ٹیسٹنگ میں مسئلہ ہو تو اسے کمنٹ کر سکتے ہیں
 	}
 
-	// 🛑 قدم 4: بوٹ اور یوزر کی پہچان میچ کریں
-	if state.BotLID != botLID {
-		return // دوسرے بوٹ کا کارڈ ہے
-	}
-
-	if state.User != incomingUser {
-		fmt.Printf("🚫 [REJECTED] Sender %s does not match original admin %s\n", incomingUser, state.User)
-		return
-	}
-
-	// اگر یہاں تک پہنچ گیا تو خاموشی ختم!
-	fmt.Printf("✅ [SUCCESS] Match Found! Processing Stage %d\n", state.Stage)
+	fmt.Printf("✅ [MATCH] Stage %d logic starting...\n", state.Stage)
 
 	txt := strings.TrimSpace(getText(v.Message))
 	s := getGroupSettings(state.GroupID)
 
-	// --- ⚡ اسٹیج 1 ---
+	// --- اسٹیج 1: ایڈمن بائی پاس ---
 	if state.Stage == 1 {
-		if txt == "1" { s.AntilinkAdmin = true } else if txt == "2" { s.AntilinkAdmin = false } else {
-			fmt.Println("❌ [INVALID] Input not 1 or 2")
-			return 
-		}
+		if txt == "1" { s.AntilinkAdmin = true } else if txt == "2" { s.AntilinkAdmin = false } else { return }
 		
-		delete(setupMap, quotedID) // پرانا سیشن ہٹائیں
+		delete(setupMap, quotedID) // پرانا کارڈ ہٹائیں
 
 		state.Stage = 2
 		nextMsg := fmt.Sprintf(`╔════════════════╗
 ║ ⚡ %s (2/2)
 ╠════════════════╣
-║ Choose Action:
 ║ 1️⃣ DELETE ONLY
 ║ 2️⃣ DELETE + KICK
 ║ 3️⃣ DELETE + WARN
@@ -513,12 +492,12 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 		})
 		
 		state.BotMsgID = resp.ID 
-		setupMap[resp.ID] = state // نیا کارڈ ٹریک کریں
-		fmt.Printf("⏭️ [ADVANCING] Stage 2 sent. ID: %s\n", resp.ID)
+		setupMap[resp.ID] = state // نئی میسج آئی ڈی سیو کریں
+		fmt.Printf("⏭️ [NEXT] Stage 2 sent. New Wait ID: %s\n", resp.ID)
 		return
 	}
 
-	// --- ⚡ اسٹیج 2 ---
+	// --- اسٹیج 2: ایکشن سیٹ اپ ---
 	if state.Stage == 2 {
 		var actionText string
 		switch txt {
@@ -530,7 +509,7 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 
 		applySecurityFinal(s, state.Type, true)
 		saveGroupSettings(s)
-		delete(setupMap, quotedID)
+		delete(setupMap, quotedID) // سیشن ختم
 
 		adminBypass := "YES ✅"; if !s.AntilinkAdmin { adminBypass = "NO ❌" }
 		finalMsg := fmt.Sprintf(`╔════════════════╗
@@ -541,7 +520,7 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 ╚════════════════╝`, strings.ToUpper(state.Type), adminBypass, actionText)
 
 		replyMessage(client, v, finalMsg)
-		fmt.Printf("🏁 [COMPLETE] Setup finished for LID %s\n", incomingUser)
+		fmt.Printf("🏁 [COMPLETE] Setup Success for %s\n", state.Type)
 	}
 }
 
