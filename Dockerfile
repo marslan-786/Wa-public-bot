@@ -1,11 +1,21 @@
 # ═══════════════════════════════════════════════════════════
-# 1. Stage: Go Builder (یہ ویسا ہی رہے گا)
+# 1. Stage: Go Builder (Switching to Debian for compatibility)
 # ═══════════════════════════════════════════════════════════
-FROM golang:1.24-alpine AS go-builder
-RUN apk add --no-cache gcc musl-dev git sqlite-dev ffmpeg-dev
+FROM golang:1.24-bookworm AS go-builder
+
+# ڈائبیئن کے لیے ضروری ٹولز
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libc6-dev \
+    git \
+    libsqlite3-dev \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY . .
 RUN rm -f go.mod go.sum || true
+
 RUN go mod init impossible-bot && \
     go get go.mau.fi/whatsmeow@latest && \
     go get go.mongodb.org/mongo-driver/mongo@latest && \
@@ -18,43 +28,45 @@ RUN go mod init impossible-bot && \
     go get google.golang.org/protobuf/proto@latest && \
     go get github.com/showwin/speedtest-go && \
     go mod tidy
-RUN go build -ldflags="-s -w" -o bot .
+
+# 🚀 بوٹ کو بلڈ کریں (CGO انیبل رکھا ہے کیونکہ sqlite ضروری ہے)
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o bot .
 
 # ═══════════════════════════════════════════════════════════
-# 2. Stage: Node.js Builder (یہ ویسا ہی رہے گا)
+# 2. Stage: Node.js Builder
 # ═══════════════════════════════════════════════════════════
-FROM node:20-alpine AS node-builder
-RUN apk add --no-cache git 
+FROM node:20-bookworm-slim AS node-builder
 WORKDIR /app
 COPY package*.json ./
 COPY lid-extractor.js ./
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (The Powerhouse - Switch to Python-Slim)
+# 3. Stage: Final Runtime (The 32GB RAM Monster)
 # ═══════════════════════════════════════════════════════════
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
-# ✅ ضروری سسٹم پیکجز (Apt استعمال کریں گے)
+# ضروری سسٹم لائبریریز
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
     sqlite3 \
-    libsqlite3-dev \
+    libsqlite3-0 \
     nodejs \
     npm \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ✅ yt-dlp انسٹال کریں
+# yt-dlp انسٹالیشن
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-# ✅ rembg انسٹال کریں (اب یہ فوراً ہو جائے گا کیونکہ Wheels دستیاب ہیں)
+# rembg انسٹالیشن
 RUN pip3 install --no-cache-dir rembg[cli]
 
 WORKDIR /app
 
-# بلڈرز سے ڈیٹا کاپی کریں
+# بلڈرز سے بوٹ اور نوڈ ماڈیولز اٹھائیں
 COPY --from=go-builder /app/bot ./bot
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=node-builder /app/lid-extractor.js ./lid-extractor.js
@@ -65,11 +77,12 @@ COPY pic.png ./pic.png
 
 RUN mkdir -p store logs
 
-# 🎯 رن ٹائم انوائرمنٹ
+# 🎯 انوائرمنٹ سیٹنگز
 ENV PORT=8080
 ENV NODE_ENV=production
 ENV U2NET_HOME=/app/store/.u2net 
 
 EXPOSE 8080
 
-CMD ["./bot"]
+# ✅ کمانڈ کو تھوڑا بدل دیا ہے تاکہ ڈائریکٹ ایگزیکیوٹ ہو
+CMD ["/app/bot"]
