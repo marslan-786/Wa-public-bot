@@ -79,7 +79,7 @@ func handleTikTokReply(client *whatsmeow.Client, v *events.Message, input string
 }
 
 // 🚀 ہیوی ڈیوٹی میڈیا انجن (The Scientific Power)
-func downloadAndSend(client *whatsmeow.Client, v *events.Message, urlStr string, mode string) {
+func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode, format string) {
 	react(client, v.Info.Chat, v.Info.ID, "⏳")
 	
 	fileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
