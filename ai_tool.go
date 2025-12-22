@@ -81,8 +81,8 @@ func handleServerStats(client *whatsmeow.Client, v *events.Message) {
 func handleSpeedTest(client *whatsmeow.Client, v *events.Message) {
 	react(client, v.Info.Chat, v.Info.ID, "🚀")
 	
-	// ابتدائی میسج
-	msgID := replyMessage(client, v, "📡 *Impossible Engine:* Analyzing network uplink...")
+	// ✅ یہاں سے 'msgID :=' ہٹا دیا ہے کیونکہ replyMessage کچھ واپس نہیں کرتا
+	replyMessage(client, v, "📡 *Impossible Engine:* Analyzing network uplink...")
 
 	// 1. سپیڈ ٹیسٹ کلائنٹ شروع کریں
 	var speedClient = speedtest.New()
@@ -100,13 +100,13 @@ func handleSpeedTest(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 3. ٹیسٹنگ شروع (Ping, Download, Upload)
+	// 3. لائیو ٹیسٹنگ (اصلی ڈیٹا نکالنا)
 	s := targets[0]
 	s.PingTest(nil)
 	s.DownloadTest()
 	s.UploadTest()
 
-	// ✨ پریمیم کارڈ ڈیزائن (جو کبھی نہیں ٹوٹے گا)
+	// ✨ پریمیم ڈیزائن
 	result := fmt.Sprintf("╭─── 🚀 *NETWORK ANALYSIS* ───╮\n"+
 		"│\n"+
 		"│ 📡 *Node:* %s\n"+
