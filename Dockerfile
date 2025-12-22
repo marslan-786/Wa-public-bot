@@ -31,11 +31,9 @@ RUN go mod init impossible-bot && \
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o bot .
 
 # ═══════════════════════════════════════════════════════════
-# 2. Stage: Node.js Builder (FIXED: Added Git)
+# 2. Stage: Node.js Builder
 # ═══════════════════════════════════════════════════════════
 FROM node:20-bookworm-slim AS node-builder
-
-# ✅ Git انسٹال کرنا ضروری ہے تاکہ npm پیکجز ڈاؤن لوڈ ہو سکیں
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -44,10 +42,11 @@ COPY lid-extractor.js ./
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (The 32GB Monster)
+# 3. Stage: Final Runtime (The 32GB Powerhouse)
 # ═══════════════════════════════════════════════════════════
 FROM python:3.12-slim-bookworm
 
+# ✅ libgomp1 ایڈ کر دی ہے جو ONNX انجن چلانے کے لیے لازمی ہے
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
@@ -56,12 +55,15 @@ RUN apt-get update && apt-get install -y \
     nodejs \
     npm \
     ca-certificates \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# yt-dlp انسٹالیشن
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-RUN pip3 install --no-cache-dir rembg[cli]
+# ✅ onnxruntime کو الگ سے انسٹال کیا ہے تاکہ 'Module Not Found' نہ آئے
+RUN pip3 install --no-cache-dir onnxruntime rembg[cli]
 
 WORKDIR /app
 
