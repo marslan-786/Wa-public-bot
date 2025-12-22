@@ -328,7 +328,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "ss", "screenshot":
 		handleScreenshot(client, v, fullArgs)
     case "ai", "ask", "gpt":
-		handleAI(client, v, fullArgs)
+        handleAI(client, v, fullArgs, cmd) // یہاں 'cmd' کا اضافہ کیا گیا ہے
 	case "imagine", "img", "draw":
 		handleImagine(client, v, fullArgs)
 	case "google", "search":

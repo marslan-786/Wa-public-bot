@@ -220,25 +220,24 @@ func uploadToTempHost(data []byte, filename string) (string, error) {
 }
 
 func handleRemini(client *whatsmeow.Client, v *events.Message) {
-	// 1️⃣ چیک کریں کہ کیا یہ امیج کا ریپلائی ہے؟
-	if !v.Info.IsIncoming || v.Message.GetExtendedTextMessage() == nil || v.Message.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage() == nil {
+	// IsIncoming ہٹا کر ہم ڈائریکٹ کوٹیڈ میسج چیک کر رہے ہیں
+	extMsg := v.Message.GetExtendedTextMessage()
+	if extMsg == nil || extMsg.ContextInfo == nil || extMsg.ContextInfo.QuotedMessage == nil {
 		replyMessage(client, v, "⚠️ Please reply to an image with *.remini*")
 		return
 	}
 
-	quotedMsg := v.Message.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage()
+	quotedMsg := extMsg.ContextInfo.QuotedMessage
 	imgMsg := quotedMsg.GetImageMessage()
 	if imgMsg == nil {
 		replyMessage(client, v, "⚠️ The replied message is not an image.")
 		return
 	}
 
-	// 🎬 پروسیسنگ شروع
 	react(client, v.Info.Chat, v.Info.ID, "✨")
-	sendToolCard(client, v, "AI Enhancer", "Remini-V3", "🪄 Downloading & Processing Image...")
-
-	// 2️⃣ واٹس ایپ سے اصل امیج ڈاؤن لوڈ کریں
-	imgData, err := client.Download(imgMsg)
+	
+	// 🛠️ FIX: Download میں context.Background() کا اضافہ کیا گیا ہے
+	imgData, err := client.Download(context.Background(), imgMsg)
 	if err != nil {
 		replyMessage(client, v, "❌ Failed to download original image.")
 		return
@@ -525,29 +524,29 @@ func handleToPTT(client *whatsmeow.Client, v *events.Message) {
 
 // 🧼 BACKGROUND REMOVER (.removebg) - FIXED
 func handleRemoveBG(client *whatsmeow.Client, v *events.Message) {
-	// 1️⃣ ریپلائی چیک کریں
-	if v.Message.GetExtendedTextMessage() == nil || v.Message.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage() == nil {
+	extMsg := v.Message.GetExtendedTextMessage()
+	if extMsg == nil || extMsg.ContextInfo == nil || extMsg.ContextInfo.QuotedMessage == nil {
 		replyMessage(client, v, "⚠️ Please reply to an image with *.removebg*")
 		return
 	}
 
-	quotedMsg := v.Message.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage()
+	quotedMsg := extMsg.ContextInfo.QuotedMessage
 	imgMsg := quotedMsg.GetImageMessage()
 	if imgMsg == nil {
 		replyMessage(client, v, "⚠️ The replied message is not an image.")
 		return
 	}
 
-	// 🎬 لوکل پروسیسنگ شروع
 	react(client, v.Info.Chat, v.Info.ID, "✂️")
-	replyMessage(client, v, "🪄 *Impossible Local Engine:* Executing background extraction...")
 
-	// 2️⃣ واٹس ایپ سے امیج ڈاؤن لوڈ کریں
-	imgData, err := client.Download(imgMsg)
+	// 🛠️ FIX: Download میں context.Background() کا اضافہ کیا گیا ہے
+	imgData, err := client.Download(context.Background(), imgMsg)
 	if err != nil {
 		replyMessage(client, v, "❌ Failed to download image.")
 		return
 	}
+
+	// ... باقی rembg (local engine) والی لاجک وہی رہے گی ...
 
 	// 3️⃣ عارضی فائلز بنائیں
 	inputPath := fmt.Sprintf("input_%d.jpg", time.Now().UnixNano())
