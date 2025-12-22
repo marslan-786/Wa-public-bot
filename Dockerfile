@@ -28,7 +28,7 @@ RUN go mod init impossible-bot && \
     go get github.com/showwin/speedtest-go && \
     go mod tidy
 
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o bot .
+RUN CGO_ENABLED=1 GOOS=linux go build -v -ldflags="-s -w" -o bot .
 
 # ═══════════════════════════════════════════════════════════
 # 2. Stage: Node.js Builder
