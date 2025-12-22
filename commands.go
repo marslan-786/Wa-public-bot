@@ -70,42 +70,36 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	bodyRaw := getText(v.Message)
 	if bodyRaw == "" { return }
 	bodyClean := strings.TrimSpace(bodyRaw)
-	senderID := v.Info.Sender.User // کلین یوزر آئی ڈی
+	senderID := v.Info.Sender.User
 	chatID := v.Info.Chat.String()
-	isGroup := v.Info.IsGroup
 
-	// 🔍 [ROOT DEBUG] - یہ لائن بتائے گی کہ میسج ہینڈلر تک پہنچا یا نہیں
-	fmt.Printf("\n📥 [INCOMING] From: %s | Bot: %s | MsgID: %s\n", senderID, botID, v.Info.ID)
+	// 🛡️ 1. سب سے پہلے سیکیورٹی چیک (لنک، تصویر، ویڈیو وغیرہ)
+	// یہ فلٹر سے اوپر ہونا چاہیے تاکہ ہر میسج اسکین ہو سکے
+	if v.Info.IsGroup {
+		go checkSecurity(client, v)
+	}
 
-	// ⚡ اسٹیج چیک کرنے کی نئی لاجک (Message ID کی بنیاد پر)
+	// ⚡ 2. اسٹیج/سیٹ اپ چیک کریں (Message ID کی بنیاد پر)
 	isSetup := false
 	extMsg := v.Message.GetExtendedTextMessage()
 	if extMsg != nil && extMsg.ContextInfo != nil {
 		quotedID := extMsg.ContextInfo.GetStanzaID()
-		// چیک کریں کیا یہ ریپلائی آئی ڈی ہمارے کیش میں ہے؟
 		if _, ok := setupMap[quotedID]; ok {
 			isSetup = true
-			fmt.Printf("🎯 [MATCH] Setup session detected for QuotedID: %s\n", quotedID)
 		}
 	}
 
-	// 🛠️ فلٹر لاجک
-	_, isTT := ttCache[senderID]
-	_, isYTS := ytCache[senderID]
-	// نوٹ: ytDownloadCache کے لئے بھی JID کا استعمال کریں
-	_, isYTSelect := ytDownloadCache[chatID]
-
-	// اگر یہ کمانڈ نہیں ہے اور نہ ہی کوئی ایکٹو سیشن، تو چپ رہے
-	if !strings.HasPrefix(bodyClean, prefix) && !isTT && !isYTS && !isYTSelect && !isSetup && chatID != "status@broadcast" {
+	// 🛠️ 3. مین فلٹر (اب یہ صرف کمانڈز کے لیے کام کرے گا)
+	// اگر یہ کمانڈ نہیں ہے، سیشن نہیں ہے اور اسٹیٹس براڈکاسٹ نہیں ہے، تو اب ریٹرن ہو
+	if !strings.HasPrefix(bodyClean, prefix) && !isSetup && chatID != "status@broadcast" {
 		return 
 	}
 
-	// 2. سیٹ اپ رسپانس ہینڈلر (اگر سیشن میچ ہو جائے)
+	// 4. اگر سیٹ اپ سیشن ہے تو ہینڈلر کو بھیجیں
 	if isSetup {
 		handleSetupResponse(client, v)
 		return
 	}
-
     // ... باقی سارا کوڈ (Status, Security check, Commands) ویسے ہی رہنے دیں
 
 	// 3. اسٹیٹس براڈکاسٹ (Auto Status View/React)
