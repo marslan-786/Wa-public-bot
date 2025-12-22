@@ -61,8 +61,10 @@ func isKnownCommand(text string) bool {
 	return false
 }
 
+
+
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// 1️⃣ بنیادی معلومات اور آئی ڈی
+	// 1️⃣ بنیادی معلومات اور آئی ڈی نکالنا
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
 	if botID == "" { botID = getCleanID(rawBotID) } 
@@ -81,18 +83,18 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		qID = extMsg.ContextInfo.GetStanzaID()
 	}
 
-	// 🔍 3️⃣ سیشنز اور اسٹیٹ چیک
+	// 🔍 3️⃣ سیشنز اور اسٹیٹ چیک (Logging کے ساتھ)
+	session, isYTS := ytCache[qID]
+	state, isYTSelect := ytDownloadCache[qID]
 	_, isSetup := setupMap[qID]
-	_, isYTS := ytCache[qID]
-	_, isYTSelect := ytDownloadCache[qID]
-	_, isTT := ttCache[senderID] // ٹک ٹاک سیشن چیک
+	_, isTT := ttCache[senderID]
 
-	// 🛡️ 4️⃣ سیکیورٹی چیک (اینٹی لنک وغیرہ کے لیے اسے فلٹر سے اوپر رکھا ہے)
+	// 🛡️ 4️⃣ سیکیورٹی چیک (اینٹی لنک وغیرہ - فلٹر سے اوپر)
 	if isGroup {
 		go checkSecurity(client, v)
 	}
 
-	// 🚀 5️⃣ مین فلٹر: اگر کمانڈ نہیں ہے اور نہ ہی کوئی ایکٹو ریپلائی، تو یہیں رک جاؤ
+	// 🚀 5️⃣ مین فلٹر: اگر کمانڈ نہیں ہے اور کوئی سیشن بھی نہیں، تو خاموش رہے
 	isAnySession := isSetup || isYTS || isYTSelect || isTT
 	if !strings.HasPrefix(bodyClean, prefix) && !isAnySession && chatID != "status@broadcast" {
 		return 
@@ -105,18 +107,20 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	if qID != "" {
-		// یوٹیوب سرچ رزلٹ لسٹ کا جواب
-		if session, ok := ytCache[qID]; ok && session.BotLID == botID {
+		// 📺 یوٹیوب سرچ رزلٹ پر ریپلائی
+		if isYTS && session.BotLID == botID {
 			var idx int
 			fmt.Sscanf(bodyClean, "%d", &idx)
+			fmt.Printf("⚙️ [DEBUG] YTS Reply: Index %d selected by %s\n", idx, senderID)
 			if idx >= 1 && idx <= len(session.Results) {
 				delete(ytCache, qID)
 				handleYTDownloadMenu(client, v, session.Results[idx-1].Url)
 				return
 			}
 		}
-		// یوٹیوب فارمیٹ (MP3/MP4) کا جواب
-		if state, ok := ytDownloadCache[qID]; ok && state.BotLID == botID {
+		// 🎬 یوٹیوب ویڈیو سلیکٹر (1,2,3,4) پر ریپلائی
+		if isYTSelect && state.BotLID == botID {
+			fmt.Printf("⚙️ [DEBUG] YT-DL Reply: Format %s chosen for URL: %s\n", bodyClean, state.Url)
 			delete(ytDownloadCache, qID)
 			go handleYTDownload(client, v, state.Url, bodyClean, (bodyClean == "4"))
 			return
@@ -143,7 +147,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	if data.AutoReact { react(client, v.Info.Chat, v.Info.ID, "❤️") }
 	dataMutex.RUnlock()
 
-	// 📱 9️⃣ انٹرایکٹو ٹک ٹاک ہینڈلنگ
+	// 📱 9️⃣ انٹرایکٹو ٹک ٹاک ہینڈلنگ (Prefix کے بغیر ریپلائی سننا)
 	if isTT && !strings.HasPrefix(bodyClean, prefix) {
 		handleTikTokReply(client, v, bodyClean, senderID)
 		return
@@ -156,10 +160,11 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	
 	cmd := split[0]
 	args := split[1:]
-	fullArgs := strings.Join(args, " ")
+	fullArgs := strings.TrimSpace(strings.Join(args, " "))
 
 	if !canExecute(client, v, cmd) { return }
 
+	// 📊 کنسول پر کمانڈ لاگ کریں
 	fmt.Printf("🚀 [EXEC] Bot: %s | CMD: %s | Chat: %s\n", botID, cmd, chatID)
 
 	switch cmd {
@@ -170,11 +175,9 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		replyMessage(client, v, fmt.Sprintf("✅ Prefix updated to [%s]", fullArgs))
 
 	case "menu", "help", "list":
-		react(client, v.Info.Chat, v.Info.ID, "📜")
-		sendMenu(client, v)
+		react(client, v.Info.Chat, v.Info.ID, "📜"); sendMenu(client, v)
 	case "ping":
-		react(client, v.Info.Chat, v.Info.ID, "⚡")
-		sendPing(client, v)
+		react(client, v.Info.Chat, v.Info.ID, "⚡"); sendPing(client, v)
 	case "id":
 		sendID(client, v)
 	case "owner":
@@ -246,13 +249,16 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 	// 📺 یوٹیوب ماسٹر کمانڈ (Merged)
 	case "yt", "ytmp4", "ytmp3", "ytv", "yta", "youtube":
+		fmt.Printf("📥 [DEBUG] YT Link Triggered. URL: '%s'\n", fullArgs)
 		if fullArgs == "" {
 			replyMessage(client, v, "⚠️ *Usage:* .yt [YouTube Link]")
 			return
 		}
-		if strings.Contains(fullArgs, "youtu") {
-			// اب لنک دیتے ہی سلیکٹر مینو جائے گا
-			handleYTDownloadMenu(client, v, fullArgs)
+		// لنک کی صفائی اور تصدیق
+		cleanURL := strings.TrimSpace(fullArgs)
+		if strings.Contains(cleanURL, "youtu") {
+			fmt.Printf("📍 [DEBUG] Redirecting to Selector Card for: %s\n", cleanURL)
+			handleYTDownloadMenu(client, v, cleanURL)
 		} else {
 			replyMessage(client, v, "❌ Please provide a valid YouTube link or use *.yts* to search.")
 		}

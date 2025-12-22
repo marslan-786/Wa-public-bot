@@ -80,12 +80,11 @@ func handleTikTokReply(client *whatsmeow.Client, v *events.Message, input string
 
 // 🚀 ہیوی ڈیوٹی میڈیا انجن (The Scientific Power)
 func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode string, optionalFormat ...string) {
+	fmt.Printf("\n⚙️ [DOWNLOADER START] Target: %s | Mode: %s\n", ytUrl, mode)
 	react(client, v.Info.Chat, v.Info.ID, "⏳")
 	
 	fileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
-	
-	// 🎯 بہترین فارمیٹ سیٹ کریں (MP4 کو ترجیح دیں لیکن اگر نہ ملے تو جو ملے اٹھا لے)
-	formatArg := "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+	formatArg := "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best"
 	if len(optionalFormat) > 0 && optionalFormat[0] != "" {
 		formatArg = optionalFormat[0]
 	}
@@ -93,21 +92,26 @@ func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode st
 	var args []string
 	if mode == "audio" {
 		fileName += ".mp3"
-		// ✅ یہاں 'ytUrl' استعمال ہوگا
 		args = []string{"--no-playlist", "-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "-o", fileName, ytUrl}
 	} else {
 		fileName += ".mp4"
-		// ✅ یہاں بھی 'ytUrl' استعمال ہوگا
 		args = []string{"--no-playlist", "-f", formatArg, "--merge-output-format", "mp4", "-o", fileName, ytUrl}
 	}
 
-	// 1. ڈاؤن لوڈ شروع
+	// 🛑 [IMPORTANT] - کمانڈ کا پوسٹ مارٹم
+	fullCmd := strings.Join(args, " ")
+	fmt.Printf("🛠️ [SYSTEM CMD] Executing: yt-dlp %s\n", fullCmd)
+
 	cmd := exec.Command("yt-dlp", args...)
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("❌ yt-dlp error: %v\n", err)
-		replyMessage(client, v, "❌ Media processing failed. The link might be restricted or too large.")
+	output, err := cmd.CombinedOutput() // ہم نے آؤٹ پٹ بھی پکڑ لی تاکہ وجہ پتہ چلے
+	if err != nil {
+		fmt.Printf("❌ [CRITICAL ERROR] yt-dlp failed: %v\n", err)
+		fmt.Printf("📄 [YT-DLP LOG] %s\n", string(output))
+		replyMessage(client, v, "❌ Media processing failed. Check logs for details.")
 		return
 	}
+
+	// ... باقی فائل بھیجنے والا کوڈ ...
 
 	// 2. فائل چیک کریں اور اپلوڈ کریں
 	fileData, err := os.ReadFile(fileName)
