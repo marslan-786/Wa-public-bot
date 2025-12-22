@@ -148,7 +148,11 @@ func handleThreads(client *whatsmeow.Client, v *events.Message, url string) {
 }
 
 func handleSnapchat(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Snap Content", "Snapchat", "👻 Capturing Snap Spotlight...")
+	if url == "" { return }
+	react(client, v.Info.Chat, v.Info.ID, "👻")
+	sendPremiumCard(client, v, "Snapchat", "Snap-Engine", "👻 Capturing Snap Spotlight... Please wait.")
+	
+	// سنیپ چیٹ کے لیے ہم مخصوص کوالٹی پیرامیٹرز استعمال کریں گے
 	go downloadAndSend(client, v, url, "video")
 }
 

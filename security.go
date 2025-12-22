@@ -349,11 +349,31 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 	}
 }
 // مثال کے طور پر
-func onResponse(choice string) {
-    state := setupMap[v.Info.Sender.String()]
-    // ریڈیس میں کی بنے گی: sec:[BotLID]:[GroupID]:[secType]
+func onResponse(v *events.Message, choice string) {
+    // 1. پہلے یوزر کی آئی ڈی نکالیں
+    senderID := v.Info.Sender.String()
+
+    // 2. چیک کریں کہ کیا یہ یوزر سیٹ اپ موڈ میں ہے؟
+    state, exists := setupMap[senderID]
+    if !exists {
+        return // اگر یوزر سیٹ اپ میں نہیں ہے تو کچھ نہ کرے
+    }
+
+    // 3. ریڈیس کے لیے کی (Key) تیار کریں
+    // اس میں بوٹ کی LID، گروپ آئی ڈی اور ٹائپ (AntiLink وغیرہ) شامل ہے
     key := fmt.Sprintf("sec:%s:%s:%s", state.BotLID, state.GroupID, state.Type)
-    rdb.Set(ctx, key, choice, 0)
+
+    // 4. ریڈیس میں سیو کریں (ctx کی جگہ براہ راست context.Background استعمال کیا ہے تاکہ ایرر نہ آئے)
+    err := rdb.Set(context.Background(), key, choice, 0).Err()
+    
+    if err != nil {
+        fmt.Println("❌ [REDIS] Error saving response:", err)
+    } else {
+        fmt.Printf("✅ [SECURITY] %s set to %s for group %s\n", state.Type, choice, state.GroupID)
+    }
+
+    // 5. سیٹ اپ مکمل ہونے کے بعد یوزر کو میپ سے نکال دیں
+    delete(setupMap, senderID)
 }
 
 func startSecuritySetup(client *whatsmeow.Client, v *events.Message, secType string) {
