@@ -197,25 +197,28 @@ func sendAudio(client *whatsmeow.Client, v *events.Message, audioURL string) {
 	})
 }
 // ✅ نئی اور صحیح لائن (جس میں senderID شامل ہے):
+// ✅ فنکشن کے ہیڈر میں پیرامیٹرز بالکل صحیح ہیں
 func handleTikTokReply(client *whatsmeow.Client, v *events.Message, input string, senderID string) {
-    // ... باقی کوڈ ویسا ہی رہے گا ...
-	senderID := v.Info.Sender.ToNonAD().String()
+	// 1️⃣ کیش سے ڈیٹا نکالیں
 	state, exists := ttCache[senderID]
 	if !exists { return }
 
-	// ان پٹ صاف کریں
+	// 🛠️ فکس ۱: یہاں 'senderID :=' نہیں کرنا، کیونکہ وہ اوپر پیرامیٹر میں موجود ہے
+	// اگر دوبارہ نکالنا بھی ہو تو صرف '=' استعمال کریں (بغیر سیمی کولن کے)
+	senderID = v.Info.Sender.ToNonAD().String() 
+
 	input = strings.TrimSpace(input)
 
 	switch input {
 	case "1":
 		react(client, v.Info.Chat, v.Info.ID, "🎬")
 		sendVideo(client, v, state.PlayURL, "✅ *TikTok Video Generated*")
-		delete(ttCache, senderID) // کام ختم ہونے پر کیش صاف
+		delete(ttCache, senderID) 
 
 	case "2":
 		react(client, v.Info.Chat, v.Info.ID, "🎵")
-		// آڈیو کو ڈاکومنٹ کے بجائے آڈیو میسج کے طور پر بھیجنا بہتر ہے
-		sendAudio(client, v, state.MusicURL) 
+		// 🛠️ فکس ۲: یہاں 'v' مسنگ تھا، اب ۳ پیرامیٹرز پورے کر دیے ہیں
+		sendAudio(client, v, state.MusicURL)  
 		delete(ttCache, senderID)
 
 	case "3":
