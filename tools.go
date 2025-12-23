@@ -121,7 +121,6 @@ func handleToMedia(client *whatsmeow.Client, v *events.Message, isGif bool) {
 		stickerMsg = extMsg.ContextInfo.QuotedMessage.GetStickerMessage()
 	}
 
-	// چیک کریں کہ کیا اسٹیکر ہے اور کیا وہ حرکت والا ہے
 	if stickerMsg == nil || !stickerMsg.GetIsAnimated() {
 		replyMessage(client, v, "❌ Please reply to an *Animated* sticker.")
 		return
@@ -136,30 +135,28 @@ func handleToMedia(client *whatsmeow.Client, v *events.Message, isGif bool) {
 	output := fmt.Sprintf("out_%d.mp4", time.Now().UnixNano())
 	os.WriteFile(input, data, 0644)
 
-	// 🚀 ایٹمی FFmpeg کمانڈ (فکسڈ لاجک)
-	// 1. ہم نے '-vcodec libwebp' ہٹا دیا ہے تاکہ FFmpeg خود پہچانے
-	// 2. ہم نے 'pad' فلٹر ایڈ کیا ہے تاکہ اگر اسٹیکر ٹرانسپیرنٹ ہو تو پیچھے کالا رنگ آ جائے
-	// 3. 'yuv420p' فارمیٹ واٹس ایپ کے لئے لازمی ہے
+	// 🚀 ایٹمی FFmpeg فکس: 
+	// ہم نے '-vcodec libwebp' ہٹا کر ان پٹ کو سادہ رکھا ہے اور 
+	// پکسل فارمیٹ کو زبردستی 'yuv420p' کیا ہے جو واٹس ایپ کے لئے پکا ہے
 	cmd := exec.Command("ffmpeg", "-y", 
 		"-i", input, 
-		"-vf", "pad=iw*2:ih*2:(ow-iw)/2:(oh-ih)/2:color=black,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p", 
+		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p", 
 		"-c:v", "libx264", 
 		"-preset", "faster", 
-		"-crf", "22", 
+		"-crf", "20", 
 		"-movflags", "+faststart", 
 		output)
 	
 	outLog, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("🔥 FFmpeg Error Log: %s\n", string(outLog))
-		replyMessage(client, v, "❌ Graphics Engine Error. Use a valid animated sticker.")
+		fmt.Printf("🔥 Render Error: %s\n", string(outLog))
+		replyMessage(client, v, "❌ Media Engine failed. Trying alternative...")
 		os.Remove(input)
 		return
 	}
 
 	finalData, _ := os.ReadFile(output)
 	up, err := client.Upload(context.Background(), finalData, whatsmeow.MediaVideo)
-	if err != nil { return }
 
 	msg := &waProto.Message{
 		VideoMessage: &waProto.VideoMessage{
@@ -167,23 +164,19 @@ func handleToMedia(client *whatsmeow.Client, v *events.Message, isGif bool) {
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,
 			Mimetype:      proto.String("video/mp4"),
-			Caption:       proto.String("✅ *Impossible Media Lab Success*"),
+			Caption:       proto.String("✅ *Converted by Impossible Media Lab*"),
 			FileLength:    proto.Uint64(uint64(len(finalData))),
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 		},
 	}
 
-	// اگر یوزر نے .togif کمانڈ دی ہے
 	if isGif {
 		msg.VideoMessage.GifPlayback = proto.Bool(true)
 	}
 
 	client.SendMessage(context.Background(), v.Info.Chat, msg)
-	
-	// صفائی (Cleanup)
-	os.Remove(input)
-	os.Remove(output)
+	os.Remove(input); os.Remove(output)
 	react(client, v.Info.Chat, v.Info.ID, "✅")
 }
 

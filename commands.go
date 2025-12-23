@@ -64,7 +64,7 @@ func isKnownCommand(text string) bool {
 
 
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// 1️⃣ بنیادی معلومات نکالنا (JID ہینڈلنگ فکس کے ساتھ)
+	// 1️⃣ بنیادی معلومات نکالنا (JID ہینڈلنگ فکس)
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
 	if botID == "" { botID = getCleanID(rawBotID) } 
@@ -86,13 +86,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	// 🔍 3️⃣ سیشنز اور اسٹیٹ چیک (Reply Logic)
-	// یوٹیوب ریپلائی (اکثر qID پر ہوتا ہے)
 	session, isYTS := ytCache[qID]
 	stateYT, isYTSelect := ytDownloadCache[qID]
 	_, isSetup := setupMap[qID]
-	
-	// ٹک ٹاک ریپلائی (یہ یوزر آئی ڈی پر ہے، اس لیے ہر میسج پر چیک ہوگا)
-	_, isTT := ttCache[senderID]
+	_, isTT := ttCache[senderID] // ٹک ٹاک اسٹیٹس چیک
 
 	// 🛡️ 4️⃣ سیکیورٹی چیک (اینٹی لنک وغیرہ)
 	if isGroup {
@@ -105,15 +102,15 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return 
 	}
 
-	// 🎯 6️⃣ ترجیحی ریپلائی ہینڈلنگ (Priority Logic)
+	// 🎯 6️⃣ ریپلائی ہینڈلنگ (Priority Logic)
 
-	// A. سب سے پہلے سیٹ اپ (Security/Config)
+	// A. سب سے پہلے سیکیورٹی سیٹ اپ
 	if isSetup {
 		handleSetupResponse(client, v)
 		return
 	}
 
-	// B. ٹک ٹاک ریپلائی (اگر یوزر کیش میں ہے اور صرف 1, 2, 3 بھیجا ہے)
+	// B. ٹک ٹاک ریپلائی ہینڈلنگ (اگر یوزر کیش میں ہے اور صرف 1, 2, 3 بھیجا ہے)
 	if isTT && !strings.HasPrefix(bodyClean, prefix) {
 		if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
 			handleTikTokReply(client, v, bodyClean, senderID)
@@ -121,9 +118,9 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// C. یوٹیوب ریپلائی (اگر میسج کسی پرانے میسج کا ریپلائی ہے)
+	// C. یوٹیوب ریپلائی (اگر میسج کسی مینو کا ریپلائی ہے)
 	if qID != "" {
-		// یوٹیوب سرچ رزلٹ لسٹ
+		// یوٹیوب سرچ رزلٹ لسٹ پر ریپلائی
 		if isYTS && session.BotLID == botID {
 			var idx int
 			n, _ := fmt.Sscanf(bodyClean, "%d", &idx)
@@ -133,7 +130,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 				return
 			}
 		}
-		// یوٹیوب ویڈیو کوالٹی سلیکٹر
+		// یوٹیوب ویڈیو سلیکٹر (1,2,3,4) پر ریپلائی
 		if isYTSelect && stateYT.BotLID == botID {
 			delete(ytDownloadCache, qID)
 			go handleYTDownload(client, v, stateYT.Url, bodyClean, (bodyClean == "4"))
@@ -161,13 +158,16 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	if data.AutoReact { react(client, v.Info.Chat, v.Info.ID, "❤️") }
 	dataMutex.RUnlock()
 
-	// ⚡ 9️⃣ مین کمانڈ پارسنگ (The Case-Safe Engine)
+	// ⚡ 9️⃣ مین کمانڈ پارسنگ (The "Case-Safe" Engine)
 	msgWithoutPrefix := strings.TrimPrefix(bodyClean, prefix)
 	words := strings.Fields(msgWithoutPrefix)
+	
 	if len(words) == 0 { return }
-
-	// کمانڈ کو چھوٹا کریں لیکن آرگیومنٹس (لنکس وغیرہ) کو ویسا ہی رہنے دیں
+	
+	// صرف کمانڈ کو چھوٹا (Lowercase) کریں
 	cmd := strings.ToLower(words[0]) 
+	
+	// لنکس یا آرگیومنٹس کو ویسا ہی رہنے دیں جیسا یوزر نے بھیجا ہے
 	fullArgs := strings.TrimSpace(strings.Join(words[1:], " "))
 
 	if !canExecute(client, v, cmd) { return }
