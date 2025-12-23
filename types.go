@@ -30,26 +30,6 @@ type TTState struct {
 	MusicURL string
 	Size     int64
 }
-// یہ یوٹیوب سرچ کا سیشن سنبھالے گا
-type YTSession struct {
-	Results  []YTSResult
-	SenderID string
-	BotLID   string
-}
-
-// یہ ڈاؤنلوڈ مینیو (MP3/MP4) کا اسٹیٹ سنبھالے گا
-type YTState struct {
-	Url      string
-	Title    string
-	SenderID string
-	BotLID   string // ✅ یہ فیلڈ ایڈ کر دی
-}
-
-// اگر YTSResult پہلے سے نہیں ہے تو اسے بھی ڈال دیں
-type YTSResult struct {
-	Title string
-	Url   string
-}
 
 type BotData struct {
 	ID            string   `bson:"_id" json:"id"`
@@ -62,14 +42,11 @@ type BotData struct {
 	StatusTargets []string `bson:"status_targets" json:"status_targets"`
 }
 
-// SetupState بوٹ کے سیکیورٹی سیٹ اپ کے سیشن کو سنبھالتا ہے
 type SetupState struct {
-	Type     string // اینٹی لنک، اینٹی پک، وغیرہ (Feature Name)
-	Stage    int    // پہلا اسٹیج ہے یا دوسرا (Current Step)
-	GroupID  string // کس گروپ میں سیٹ اپ ہو رہا ہے
-	User     string // کون سا ایڈمن سیٹ اپ کر رہا ہے
-	BotLID   string // کس بوٹ کے ذریعے سیٹ اپ ہو رہا ہے (Multi-Bot Fix)
-	BotMsgID string // بوٹ کے بھیجے گئے کارڈ کی یونیک آئی ڈی (Reply Check)
+	Type    string
+	Stage   int
+	GroupID string
+	User    string
 }
 
 // --- 🌍 GLOBAL VARIABLES ---

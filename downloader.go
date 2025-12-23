@@ -19,10 +19,21 @@ import (
 )
 
 // 🛡️ گلوبل اسٹرکچرز
+type YTSResult struct {
+	Title string
+	Url   string
+}
 
+type YTState struct {
+	Url      string
+	Title    string
+	SenderID string
+}
 
 // اگر types.go میں TTState موجود ہے تو اسے یہاں سے ہٹا دیں
 
+var ytCache = make(map[string][]YTSResult)
+var ytDownloadCache = make(map[string]YTState)
 var ttCache = make(map[string]TTState)
 
 // 💎 پریمیم کارڈ میکر (ہیلپر)
@@ -39,44 +50,29 @@ func sendPremiumCard(client *whatsmeow.Client, v *events.Message, title, site, i
 	replyMessage(client, v, card)
 }
 
-
-
 // 🚀 ہیوی ڈیوٹی میڈیا انجن (The Scientific Power)
-func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode string, optionalFormat ...string) {
-	fmt.Printf("\n⚙️ [DOWNLOADER START] Target: %s | Mode: %s\n", ytUrl, mode)
+func downloadAndSend(client *whatsmeow.Client, v *events.Message, urlStr string, mode string) {
 	react(client, v.Info.Chat, v.Info.ID, "⏳")
 	
 	fileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
-	formatArg := "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best"
-	if len(optionalFormat) > 0 && optionalFormat[0] != "" {
-		formatArg = optionalFormat[0]
-	}
-
 	var args []string
+
 	if mode == "audio" {
 		fileName += ".mp3"
-		args = []string{"--no-playlist", "-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "-o", fileName, ytUrl}
+		args = []string{"-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "-o", fileName, urlStr}
 	} else {
 		fileName += ".mp4"
-		args = []string{"--no-playlist", "-f", formatArg, "--merge-output-format", "mp4", "-o", fileName, ytUrl}
+		args = []string{"-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "--merge-output-format", "mp4", "-o", fileName, urlStr}
 	}
 
-	// 🛑 [IMPORTANT] - کمانڈ کا پوسٹ مارٹم
-	fullCmd := strings.Join(args, " ")
-	fmt.Printf("🛠️ [SYSTEM CMD] Executing: yt-dlp %s\n", fullCmd)
-
+	// 1. سرور پر رینڈرنگ
 	cmd := exec.Command("yt-dlp", args...)
-	output, err := cmd.CombinedOutput() // ہم نے آؤٹ پٹ بھی پکڑ لی تاکہ وجہ پتہ چلے
-	if err != nil {
-		fmt.Printf("❌ [CRITICAL ERROR] yt-dlp failed: %v\n", err)
-		fmt.Printf("📄 [YT-DLP LOG] %s\n", string(output))
-		replyMessage(client, v, "❌ Media processing failed. Check logs for details.")
+	if err := cmd.Run(); err != nil {
+		replyMessage(client, v, "❌ Media processing failed. The link might be broken or private.")
 		return
 	}
 
-	// ... باقی فائل بھیجنے والا کوڈ ...
-
-	// 2. فائل چیک کریں اور اپلوڈ کریں
+	// 2. بائٹس میں پڑھنا اور اپلوڈ (The Core Logic)
 	fileData, err := os.ReadFile(fileName)
 	if err != nil { return }
 	defer os.Remove(fileName)
@@ -87,11 +83,11 @@ func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode st
 
 	up, err := client.Upload(context.Background(), fileData, mType)
 	if err != nil {
-		replyMessage(client, v, "❌ Failed to upload to WhatsApp servers.")
+		replyMessage(client, v, "❌ WhatsApp upload failed.")
 		return
 	}
 
-	// 3. فائنل میسج ڈیلیوری
+	// 3. پروٹوکول میسج ڈیلیوری
 	var finalMsg waProto.Message
 	if mode == "audio" {
 		finalMsg.DocumentMessage = &waProto.DocumentMessage{
@@ -102,7 +98,7 @@ func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode st
 	} else {
 		finalMsg.VideoMessage = &waProto.VideoMessage{
 			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
-			Mimetype: proto.String("video/mp4"), Caption: proto.String("✅ *Impossible Bot - Success*"),
+			Mimetype: proto.String("video/mp4"), Caption: proto.String("✅ *Downloaded Successfully*"),
 			FileLength: proto.Uint64(fileSize), FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256,
 		}
 	}
@@ -127,107 +123,12 @@ func handleInstagram(client *whatsmeow.Client, v *events.Message, url string) {
 func handleTikTok(client *whatsmeow.Client, v *events.Message, urlStr string) {
 	if urlStr == "" { return }
 	react(client, v.Info.Chat, v.Info.ID, "🎵")
-	
 	apiUrl := "https://www.tikwm.com/api/?url=" + url.QueryEscape(urlStr)
-	var r struct { 
-		Code int `json:"code"`
-		Data struct { Play, Music, Title string; Size uint64 } `json:"data"` 
-	}
+	var r struct { Code int `json:"code"`; Data struct { Play, Music, Title string; Size uint64 } `json:"data"` }
 	getJson(apiUrl, &r)
-
 	if r.Code == 0 {
-		// کیش میں ڈیٹا محفوظ کریں
-		sender := v.Info.Sender.ToNonAD().String() // ✅ بہتر جے آئی ڈی ہینڈلنگ
-		ttCache[sender] = TTState{
-			PlayURL: r.Data.Play, 
-			MusicURL: r.Data.Music, 
-			Title: r.Data.Title, 
-			Size: int64(r.Data.Size),
-		}
-
-		// 👑 پریمیم ورٹیکل مینیو
-		menuText := fmt.Sprintf("📝 *Title:* %s\n\n", r.Data.Title)
-		menuText += "🔢 *Reply with a number:*\n\n"
-		menuText += "  【 1 】 🎬 *Video (No WM)*\n"
-		menuText += "  【 2 】 🎵 *Audio (MP3)*\n"
-		menuText += "  【 3 】 📄 *Full Info*\n\n"
-		menuText += "⏳ *Timeout:* 2 Minutes"
-
-		sendPremiumCard(client, v, "TikTok Downloader", "TikWM Engine", menuText)
-	} else {
-		replyMessage(client, v, "❌ *Error:* Could not fetch TikTok data.")
-	}
-}
-
-// ❌ پرانی لائن (جو ۳ پیرامیٹرز لے رہی تھی):
-// func handleTikTokReply(client *whatsmeow.Client, v *events.Message, input string)
-func sendAudio(client *whatsmeow.Client, v *events.Message, audioURL string) {
-	// 1️⃣ آڈیو ڈاؤن لوڈ کرنا
-	resp, err := http.Get(audioURL)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return
-	}
-
-	// 2️⃣ واٹس ایپ پر اپلوڈ کرنا
-	up, err := client.Upload(context.Background(), data, whatsmeow.MediaAudio)
-	if err != nil {
-		return
-	}
-
-	// 3️⃣ اوریجنل آڈیو بھیجنا (بطور میوزک فائل)
-	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-		AudioMessage: &waProto.AudioMessage{
-			URL:           proto.String(up.URL),
-			DirectPath:    proto.String(up.DirectPath),
-			MediaKey:      up.MediaKey,
-			Mimetype:      proto.String("audio/mpeg"), // ✅ میوزک فارمیٹ
-			FileSHA256:    up.FileSHA256,
-			FileEncSHA256: up.FileEncSHA256,
-			FileLength:    proto.Uint64(uint64(len(data))),
-			PTT:           proto.Bool(false), // ❌ وائس نوٹ (PTT) بند کر دیا
-		},
-	})
-}
-// ✅ نئی اور صحیح لائن (جس میں senderID شامل ہے):
-// ✅ فنکشن کے ہیڈر میں پیرامیٹرز بالکل صحیح ہیں
-func handleTikTokReply(client *whatsmeow.Client, v *events.Message, input string, senderID string) {
-	// 1️⃣ کیش سے ڈیٹا نکالیں
-	state, exists := ttCache[senderID]
-	if !exists { return }
-
-	// 🛠️ فکس ۱: یہاں 'senderID :=' نہیں کرنا، کیونکہ وہ اوپر پیرامیٹر میں موجود ہے
-	// اگر دوبارہ نکالنا بھی ہو تو صرف '=' استعمال کریں (بغیر سیمی کولن کے)
-	senderID = v.Info.Sender.ToNonAD().String() 
-
-	input = strings.TrimSpace(input)
-
-	switch input {
-	case "1":
-		react(client, v.Info.Chat, v.Info.ID, "🎬")
-		sendVideo(client, v, state.PlayURL, "✅ *TikTok Video Generated*")
-		delete(ttCache, senderID) 
-
-	case "2":
-		react(client, v.Info.Chat, v.Info.ID, "🎵")
-		// 🛠️ فکس ۲: یہاں 'v' مسنگ تھا، اب ۳ پیرامیٹرز پورے کر دیے ہیں
-		sendAudio(client, v, state.MusicURL)  
-		delete(ttCache, senderID)
-
-	case "3":
-		infoMsg := fmt.Sprintf("╔═══════════════════╗\n"+
-			"║      ✨ TIKTOK INFO ✨     ║\n"+
-			"╠═══════════════════╣\n"+
-			"║ 📝 Title: %s\n"+
-			"║ 📊 Size: %.2f MB\n"+
-			"╚═══════════════════╝", state.Title, float64(state.Size)/(1024*1024))
-		replyMessage(client, v, infoMsg)
-		delete(ttCache, senderID)
+		ttCache[v.Info.Sender.String()] = TTState{PlayURL: r.Data.Play, MusicURL: r.Data.Music, Title: r.Data.Title, Size: int64(r.Data.Size)}
+		sendPremiumCard(client, v, "TikTok No-WM", "TikTok", fmt.Sprintf("📝 %s\n\n🔢 Reply 1 for Video | 2 for Audio", r.Data.Title))
 	}
 }
 
@@ -247,11 +148,7 @@ func handleThreads(client *whatsmeow.Client, v *events.Message, url string) {
 }
 
 func handleSnapchat(client *whatsmeow.Client, v *events.Message, url string) {
-	if url == "" { return }
-	react(client, v.Info.Chat, v.Info.ID, "👻")
-	sendPremiumCard(client, v, "Snapchat", "Snap-Engine", "👻 Capturing Snap Spotlight... Please wait.")
-	
-	// سنیپ چیٹ کے لیے ہم مخصوص کوالٹی پیرامیٹرز استعمال کریں گے
+	sendPremiumCard(client, v, "Snap Content", "Snapchat", "👻 Capturing Snap Spotlight...")
 	go downloadAndSend(client, v, url, "video")
 }
 
@@ -370,238 +267,43 @@ func handleIfunny(client *whatsmeow.Client, v *events.Message, url string) {
 
 // 💻 ڈویلپر اور آرکائیو
 func handleGithub(client *whatsmeow.Client, v *events.Message, urlStr string) {
-	if urlStr == "" { return }
-	
-	// ✅ فکس: اگر لنک کے آخر میں .git ہو تو اسے صاف کریں
-	urlStr = strings.TrimSuffix(urlStr, ".git")
-	urlStr = strings.TrimSuffix(urlStr, "/")
-	
 	react(client, v.Info.Chat, v.Info.ID, "💻")
+	// گٹ ہب کے لئے مخصوص لاجک (ڈاؤن لوڈ زپ)
+	zipURL := urlStr + "/archive/refs/heads/main.zip"
 	sendPremiumCard(client, v, "Repo Source", "GitHub", "📁 Packing Repository ZIP...")
-
-	zipURL := urlStr + "/zipball/HEAD"
-
-	// ڈاؤن لوڈ لاجک
-	resp, err := http.Get(zipURL)
-	if err != nil || resp.StatusCode != 200 {
-		replyMessage(client, v, "❌ *GitHub Error:* Repo not found. Ensure it is public.")
-		return
-	}
-	defer resp.Body.Close()
-
-	fileName := fmt.Sprintf("repo_%d.zip", time.Now().UnixNano())
-	out, _ := os.Create(fileName)
-	io.Copy(out, resp.Body)
-	out.Close()
-
-	fileData, _ := os.ReadFile(fileName)
-	defer os.Remove(fileName)
-
-	up, err := client.Upload(context.Background(), fileData, whatsmeow.MediaDocument)
-	if err != nil { return }
-
-	// ✅ فکسڈ میسج (MediaType کو IMAGE کر دیا ہے)
-		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-			DocumentMessage: &waProto.DocumentMessage{
-				URL:           proto.String(up.URL),
-				DirectPath:    proto.String(up.DirectPath),
-				MediaKey:      up.MediaKey,
-				Mimetype:      proto.String("application/octet-stream"),
-				Title:         proto.String(fileName),
-				FileName:      proto.String(fileName),
-				FileLength:    proto.Uint64(uint64(len(fileData))),
-				FileSHA256:    up.FileSHA256,
-				FileEncSHA256: up.FileEncSHA256,
-				ContextInfo: &waProto.ContextInfo{
-					ExternalAdReply: &waProto.ContextInfo_ExternalAdReplyInfo{
-						Title:     proto.String("Impossible Mega Engine"),
-						Body:      proto.String("File: " + fileName),
-						SourceURL: proto.String(urlStr),
-						MediaType: waProto.ContextInfo_ExternalAdReplyInfo_IMAGE.Enum(), // 🛠️ فکس: یہاں IMAGE ہی چلے گا
-					},
-				},
-			},
-		})
-	react(client, v.Info.Chat, v.Info.ID, "✅")
+	sendDocument(client, v, zipURL, "Source_Code.zip", "application/zip")
 }
 
 func handleArchive(client *whatsmeow.Client, v *events.Message, urlStr string) {
-	if urlStr == "" { return }
-	
-	urlStr = strings.TrimSpace(urlStr)
-	react(client, v.Info.Chat, v.Info.ID, "🏛️")
-	sendPremiumCard(client, v, "Archive Downloader", "Wayback-Machine", "🏛️ Accessing historical servers...")
-
-	go func() {
-		// 1️⃣ فائل کی معلومات حاصل کریں (Headers چیک کریں)
-		clientHttp := &http.Client{
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return nil // ری ڈائریکٹس کو فالو کریں
-			},
-		}
-
-		req, _ := http.NewRequest("GET", urlStr, nil)
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-		
-		resp, err := clientHttp.Do(req)
-		if err != nil || resp.StatusCode != 200 {
-			replyMessage(client, v, "❌ *Archive Error:* Could not reach the file. Link might be dead.")
-			return
-		}
-		defer resp.Body.Close()
-
-		// 2️⃣ فائل کا نام نکالیں (URL سے یا Header سے)
-		fileName := "archive_file"
-		if disp := resp.Header.Get("Content-Disposition"); strings.Contains(disp, "filename=") {
-			fileName = strings.Split(disp, "filename=")[1]
-			fileName = strings.Trim(fileName, ` "`)
-		} else {
-			// یو آر ایل کے آخری حصے سے نام نکالیں
-			parts := strings.Split(urlStr, "/")
-			fileName = parts[len(parts)-1]
-			if !strings.Contains(fileName, ".") { fileName += ".bin" }
-		}
-
-		// 3️⃣ 🚀 ڈاؤن لوڈنگ (بفر کے ساتھ تاکہ ریم پر بوجھ نہ پڑے)
-		tempFile := fmt.Sprintf("temp_arc_%d_%s", time.Now().UnixNano(), fileName)
-		out, _ := os.Create(tempFile)
-		_, err = io.Copy(out, resp.Body)
-		out.Close()
-
-		if err != nil {
-			replyMessage(client, v, "❌ *Error:* Download interrupted.")
-			os.Remove(tempFile)
-			return
-		}
-
-		fileData, _ := os.ReadFile(tempFile)
-		defer os.Remove(tempFile)
-
-		// 4️⃣ واٹس ایپ پر اپلوڈ اور سینڈ
-		// ڈاکومنٹ کے طور پر بھیجنا سب سے وی آئی پی طریقہ ہے
-		up, err := client.Upload(context.Background(), fileData, whatsmeow.MediaDocument)
-		if err != nil {
-			replyMessage(client, v, "❌ WhatsApp upload failed.")
-			return
-		}
-
-		// ... پچھلا کوڈ ویسا ہی رہے گا، صرف میسج والا حصہ بدلیں ...
-		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-			DocumentMessage: &waProto.DocumentMessage{
-				URL:           proto.String(up.URL),
-				DirectPath:    proto.String(up.DirectPath),
-				MediaKey:      up.MediaKey,
-				Mimetype:      proto.String(resp.Header.Get("Content-Type")),
-				Title:         proto.String(fileName),
-				FileName:      proto.String(fileName),
-				FileLength:    proto.Uint64(uint64(len(fileData))),
-				FileSHA256:    up.FileSHA256,
-				FileEncSHA256: up.FileEncSHA256,
-				ContextInfo: &waProto.ContextInfo{
-					ExternalAdReply: &waProto.ContextInfo_ExternalAdReplyInfo{
-						Title:     proto.String("Impossible Archive Engine"),
-						Body:      proto.String("Restored from Wayback Machine"),
-						SourceURL: proto.String(urlStr),
-						// ✅ یہاں بھی 'waProto.' لگانا لازمی ہے
-						MediaType: waProto.ContextInfo_ExternalAdReplyInfo_IMAGE.Enum(),
-					},
-				},
-			},
-		})
-		
-		react(client, v.Info.Chat, v.Info.ID, "✅")
-	}()
+	sendPremiumCard(client, v, "Web Archive", "Archive.org", "🏛️ Fetching Wayback Machine Data...")
+	go downloadAndSend(client, v, urlStr, "video")
 }
 
 // 📺 یوٹیوب سرچ اور مینو (YTS)
 func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	if query == "" { return }
 	react(client, v.Info.Chat, v.Info.ID, "🔍")
-	
-	// بوٹ کی کلین آئی ڈی لیں
-	myID := getCleanID(client.Store.ID.User)
-
 	cmd := exec.Command("yt-dlp", "ytsearch5:"+query, "--get-title", "--get-id", "--no-playlist")
 	out, _ := cmd.Output()
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) < 2 { return }
-
 	var results []YTSResult
-	// ✨ Bullet Style Design: یہ کبھی نہیں ٹوٹتا
-	menuText := "╭─── 📺 *YOUTUBE SEARCH* ───╮\n│\n"
-	
+	menuText := "╔════════════════════╗\n║  📺 YOUTUBE SEARCH \n╠════════════════════╣\n"
 	for i := 0; i < len(lines)-1; i += 2 {
-		title := lines[i]
-		results = append(results, YTSResult{Title: title, Url: "https://www.youtube.com/watch?v=" + lines[i+1]})
-		menuText += fmt.Sprintf("📍 *[%d]* %s\n│ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n", (i/2)+1, title)
+		results = append(results, YTSResult{Title: lines[i], Url: "https://www.youtube.com/watch?v=" + lines[i+1]})
+		menuText += fmt.Sprintf("║ [%d] %s\n", (i/2)+1, lines[i])
 	}
-	menuText += "│\n╰────────────────────╯"
-
-	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-		ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(menuText)},
-	})
-
-	if err == nil {
-		ytCache[resp.ID] = YTSession{Results: results, SenderID: v.Info.Sender.User, BotLID: myID}
-		go func() { time.Sleep(2 * time.Minute); delete(ytCache, resp.ID) }()
-	}
+	ytCache[v.Info.Sender.String()] = results
+	replyMessage(client, v, menuText+"╚════════════════════╝")
 }
 
 func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl string) {
-	myID := getCleanID(client.Store.ID.User)
-	senderLID := v.Info.Sender.User
-
-	menu := `╔════════════════════╗
-║    🎬 VIDEO SELECTOR 
-╠════════════════════╣
-║ 1️⃣ 360p (Fast)
-║ 2️⃣ 720p (HD)
-║ 3️⃣ 1080p (FHD)
-║ 4️⃣ MP3 (Audio)
-║
-║ ⏳ Select an option by 
-║ replying to this card.
-╚════════════════════╝`
-
-	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-		ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(menu)},
-	})
-
-	if err == nil {
-		// 💾 میسج آئی ڈی کے ساتھ کیش کریں
-		ytDownloadCache[resp.ID] = YTState{
-			Url:      ytUrl,
-			BotLID:   myID,
-			SenderID: senderLID,
-		}
-		fmt.Printf("📂 [YT-MENU] Cached ID: %s for Bot: %s\n", resp.ID, myID)
-		
-		// ۱ منٹ بعد صفائی
-		go func() {
-			time.Sleep(1 * time.Minute)
-			delete(ytDownloadCache, resp.ID)
-		}()
-	}
+	ytDownloadCache[v.Info.Chat.String()] = YTState{Url: ytUrl, Title: "YouTube Media", SenderID: v.Info.Sender.String()}
+	replyMessage(client, v, "╔════════════════════╗\n║  🎬 VIDEO SELECTOR \n╠════════════════════╣\n║ [1] 360p | [2] 720p\n║ [3] 1080p| [4] MP3\n╚════════════════════╝")
 }
 
-func handleYTDownload(client *whatsmeow.Client, v *events.Message, ytUrl, choice string, isAudio bool) {
-	react(client, v.Info.Chat, v.Info.ID, "⏳")
-	
-	mode := "video"
-	format := "bestvideo[height<=720]+bestaudio/best" // Default
-
-	if isAudio {
-		mode = "audio"
-	} else {
-		switch choice {
-		case "1": format = "bestvideo[height<=360]+bestaudio/best"
-		case "2": format = "bestvideo[height<=720]+bestaudio/best"
-		case "3": format = "bestvideo[height<=1080]+bestaudio/best"
-		}
-	}
-
-	// ✅ اب یہ 5 چیزیں بھیجے گا اور بوٹ اسے قبول کر لے گا
-	go downloadAndSend(client, v, ytUrl, mode, format) 
+func handleYTDownload(client *whatsmeow.Client, v *events.Message, ytUrl, format string, isAudio bool) {
+	m := "video"; if isAudio { m = "audio" }; go downloadAndSend(client, v, ytUrl, m)
 }
 
 // ------------------- مددگار فنکشنز (Helpers) -------------------

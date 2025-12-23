@@ -1,20 +1,20 @@
 # ═══════════════════════════════════════════════════════════
 # 1. Stage: Go Builder
 # ═══════════════════════════════════════════════════════════
-FROM golang:1.24-bookworm AS go-builder
+FROM golang:1.24-alpine AS go-builder
 
-# 🛠️ UPDATE: یہاں سے 'ffmpeg' ہٹا دیا ہے (صرف فائنل اسٹیج میں چاہیے)
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libc6-dev \
-    git \
-    libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/*
+# انسٹال ٹولز
+RUN apk add --no-cache gcc musl-dev git sqlite-dev ffmpeg-dev
 
 WORKDIR /app
+
+# کوڈ کاپی کریں
 COPY . .
+
+# پرانی فائلز کی صفائی
 RUN rm -f go.mod go.sum || true
 
+# ماڈیول شروع کریں اور تمام لائبریریز (بشمول ریڈیس) کھینچیں
 RUN go mod init impossible-bot && \
     go get go.mau.fi/whatsmeow@latest && \
     go get go.mongodb.org/mongo-driver/mongo@latest && \
@@ -25,67 +25,64 @@ RUN go mod init impossible-bot && \
     go get github.com/lib/pq@latest && \
     go get github.com/gorilla/websocket@latest && \
     go get google.golang.org/protobuf/proto@latest && \
-    go get github.com/showwin/speedtest-go && \
     go mod tidy
 
-RUN CGO_ENABLED=1 GOOS=linux go build -v -ldflags="-s -w" -o bot .
+# بوٹ کو کمپائل کریں
+RUN go build -ldflags="-s -w" -o bot .
 
 # ═══════════════════════════════════════════════════════════
 # 2. Stage: Node.js Builder
 # ═══════════════════════════════════════════════════════════
-FROM node:20-bookworm-slim AS node-builder
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+FROM node:20-alpine AS node-builder
+RUN apk add --no-cache git 
 
 WORKDIR /app
+
 COPY package*.json ./
 COPY lid-extractor.js ./
+
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (The 32GB Powerhouse)
+# 3. Stage: Final Runtime (The Powerhouse)
 # ═══════════════════════════════════════════════════════════
-FROM python:3.12-slim-bookworm
+FROM alpine:latest
 
-# ✅ UPDATE: libwebpmux3 اور libwebpdemux2 شامل کیے تاکہ Animation فیل نہ ہو
-# ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime
-# ═══════════════════════════════════════════════════════════
-FROM python:3.12-slim-bookworm
-
-# ✅ UPDATE: 'imagemagick' شامل کر دیا ہے (WebP Animation Fix کے لیے)
-RUN apt-get update && apt-get install -y \
+# ہیوی لائبریریز: Python, FFmpeg, اور مکمل yt-dlp کے لئے ٹولز
+RUN apk add --no-cache \
+    ca-certificates \
+    sqlite-libs \
     ffmpeg \
-    imagemagick \
+    python3 \
+    py3-pip \
     curl \
-    sqlite3 \
-    libsqlite3-0 \
     nodejs \
     npm \
-    ca-certificates \
-    libgomp1 \
-    megatools \
-    libwebp-dev \
-    webp \
-    libwebpmux3 \
-    libwebpdemux2 \
-    && rm -rf /var/lib/apt/lists/*
-
-# (باقی فائل ویسی ہی رہے گی...)
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
-
-RUN pip3 install --no-cache-dir onnxruntime rembg[cli]
+    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
+    && rm -rf /var/cache/apk/*
 
 WORKDIR /app
+
+# Go کا تیار شدہ بوٹ اٹھائیں
 COPY --from=go-builder /app/bot ./bot
+
+# Node.js کا تیار شدہ فولڈر اور اسکرپٹ اٹھائیں
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=node-builder /app/lid-extractor.js ./lid-extractor.js
 COPY --from=node-builder /app/package.json ./package.json
+
+# باقی اثاثے (Assets) کاپی کریں
 COPY web ./web
 COPY pic.png ./pic.png
+
+# فولڈرز بنائیں
 RUN mkdir -p store logs
+
+# پورٹ اور انوائرمنٹ
 ENV PORT=8080
 ENV NODE_ENV=production
-ENV U2NET_HOME=/app/store/.u2net 
 EXPOSE 8080
-CMD ["/app/bot"]
+
+# بوٹ اسٹارٹ کریں
+CMD ["./bot"]

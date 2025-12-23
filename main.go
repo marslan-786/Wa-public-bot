@@ -42,8 +42,6 @@ var (
 	clientsMutex    sync.RWMutex
 	activeClients   = make(map[string]*whatsmeow.Client)
 	globalClient *whatsmeow.Client // ✅ یہ لائن لازمی ہونی چاہئے
-	ytCache         = make(map[string]YTSession) 
-	ytDownloadCache = make(map[string]YTState)
 )
 
 // ✅ 1. ریڈیس کنکشن (سائنس دانوں کو حیران کرنے کے لئے)
