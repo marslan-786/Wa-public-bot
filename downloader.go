@@ -45,9 +45,12 @@ func sendPremiumCard(client *whatsmeow.Client, v *events.Message, title, site, i
 func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode string, optionalFormat ...string) {
 	fmt.Printf("\n⚙️ [DOWNLOADER START] Target: %s | Mode: %s\n", ytUrl, mode)
 	react(client, v.Info.Chat, v.Info.ID, "⏳")
-	
+
+	// 1. فائل کا نام اور فارمیٹ سیٹنگ
 	fileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
-	formatArg := "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best"
+	
+	// ریلوے کے ریسورسز کا فائدہ اٹھانے کے لیے بہترین کوالٹی سلیکٹ کریں
+	formatArg := "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 	if len(optionalFormat) > 0 && optionalFormat[0] != "" {
 		formatArg = optionalFormat[0]
 	}
@@ -55,60 +58,122 @@ func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode st
 	var args []string
 	if mode == "audio" {
 		fileName += ".mp3"
-		args = []string{"--no-playlist", "-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "-o", fileName, ytUrl}
-	} else {
-		fileName += ".mp4"
-		args = []string{"--no-playlist", "-f", formatArg, "--merge-output-format", "mp4", "-o", fileName, ytUrl}
-	}
-
-	// 🛑 [IMPORTANT] - کمانڈ کا پوسٹ مارٹم
-	fullCmd := strings.Join(args, " ")
-	fmt.Printf("🛠️ [SYSTEM CMD] Executing: yt-dlp %s\n", fullCmd)
-
-	cmd := exec.Command("yt-dlp", args...)
-	output, err := cmd.CombinedOutput() // ہم نے آؤٹ پٹ بھی پکڑ لی تاکہ وجہ پتہ چلے
-	if err != nil {
-		fmt.Printf("❌ [CRITICAL ERROR] yt-dlp failed: %v\n", err)
-		fmt.Printf("📄 [YT-DLP LOG] %s\n", string(output))
-		replyMessage(client, v, "❌ Media processing failed. Check logs for details.")
-		return
-	}
-
-	// ... باقی فائل بھیجنے والا کوڈ ...
-
-	// 2. فائل چیک کریں اور اپلوڈ کریں
-	fileData, err := os.ReadFile(fileName)
-	if err != nil { return }
-	defer os.Remove(fileName)
-
-	fileSize := uint64(len(fileData))
-	mType := whatsmeow.MediaVideo
-	if mode == "audio" { mType = whatsmeow.MediaDocument }
-
-	up, err := client.Upload(context.Background(), fileData, mType)
-	if err != nil {
-		replyMessage(client, v, "❌ Failed to upload to WhatsApp servers.")
-		return
-	}
-
-	// 3. فائنل میسج ڈیلیوری
-	var finalMsg waProto.Message
-	if mode == "audio" {
-		finalMsg.DocumentMessage = &waProto.DocumentMessage{
-			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
-			Mimetype: proto.String("audio/mpeg"), FileName: proto.String("Impossible_Audio.mp3"),
-			FileLength: proto.Uint64(fileSize), FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256,
+		args = []string{
+			"--no-playlist", 
+			"-f", "bestaudio", 
+			"--extract-audio", 
+			"--audio-format", "mp3", 
+			"--max-filesize", "1900M", // 2GB واٹس ایپ کی لمٹ ہے، سیفٹی کے لیے 1.9GB رکھا
+			"-o", fileName, 
+			ytUrl,
 		}
 	} else {
+		fileName += ".mp4"
+		args = []string{
+			"--no-playlist", 
+			"-f", formatArg, 
+			"--merge-output-format", "mp4", 
+			"--max-filesize", "1900M", // 2GB لمٹ
+			"-o", fileName, 
+			ytUrl,
+		}
+	}
+
+	// 2. کمانڈ چلائیں
+	fmt.Printf("🛠️ [SYSTEM CMD] Executing yt-dlp for: %s\n", fileName)
+	cmd := exec.Command("yt-dlp", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("❌ [ERROR] yt-dlp failed: %v\nLOG: %s\n", err, string(output))
+		replyMessage(client, v, "❌ Media processing failed or file too large (>2GB).")
+		return
+	}
+
+	// 3. فائل کو میموری (RAM) میں لوڈ کریں
+	// چونکہ آپ کے پاس 32GB ریم ہے، ہم پوری فائل ریم میں لوڈ کر سکتے ہیں تاکہ سپیڈ تیز ہو۔
+	fileData, err := os.ReadFile(fileName)
+	if err != nil {
+		fmt.Println("❌ File read error:", err)
+		return
+	}
+	defer os.Remove(fileName) // فنکشن ختم ہونے پر فائل ڈیلیٹ
+
+	fileSize := uint64(len(fileData))
+	fmt.Printf("📦 File Size Loaded in RAM: %.2f MB\n", float64(fileSize)/1024/1024)
+
+	// ======================================================
+	// 🧠 SMART DECISION ENGINE (The Magic Part)
+	// ======================================================
+	
+	var mType whatsmeow.MediaType
+	forceDocument := false
+
+	// اگر فائل 90MB سے بڑی ہے تو اسے زبردستی Document بنا دو
+	// کیونکہ بڑی ویڈیو اکثر واٹس ایپ ٹائم آؤٹ کر دیتا ہے
+	if fileSize > 90*1024*1024 { // 90 MB
+		forceDocument = true
+		fmt.Println("🚀 Large file detected! Switching to DOCUMENT mode for stability.")
+	}
+
+	if mode == "audio" || forceDocument {
+		mType = whatsmeow.MediaDocument
+	} else {
+		mType = whatsmeow.MediaVideo
+	}
+
+	// 4. اپلوڈ (Upload)
+	// سیاق و سباق (Context) میں ٹائم آؤٹ بڑھا دیں کیونکہ بڑی فائل ہے
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) 
+	defer cancel()
+
+	up, err := client.Upload(ctx, fileData, mType)
+	if err != nil {
+		fmt.Printf("❌ Upload failed: %v\n", err)
+		replyMessage(client, v, "❌ Failed to upload to WhatsApp (Network Timeout).")
+		return
+	}
+
+	// 5. میسج بھیجنا
+	var finalMsg waProto.Message
+
+	// اگر موڈ آڈیو ہے یا ہم نے زبردستی ڈاکومنٹ بنایا ہے (بڑی موویز کے لیے)
+	if mode == "audio" || forceDocument {
+		
+		// MIME ٹائپ سیٹ کریں تاکہ موبائل اسے صحیح پہچانے
+		mime := "application/octet-stream"
+		if mode == "audio" { mime = "audio/mpeg" }
+		if mode == "video" { mime = "video/mp4" } // ڈاکومنٹ میں بھی ویڈیو پلے ہو جائے گی
+
+		finalMsg.DocumentMessage = &waProto.DocumentMessage{
+			URL:           proto.String(up.URL),
+			DirectPath:    proto.String(up.DirectPath),
+			MediaKey:      up.MediaKey,
+			Mimetype:      proto.String(mime),
+			FileName:      proto.String(fileName), // اصل نام تاکہ یوزر کو پتہ چلے
+			FileLength:    proto.Uint64(fileSize),
+			FileSHA256:    up.FileSHA256,
+			FileEncSHA256: up.FileEncSHA256,
+			Caption:       proto.String("✅ *Process Success*"),
+		}
+	} else {
+		// چھوٹی ویڈیوز کے لیے نارمل ویڈیو میسج
 		finalMsg.VideoMessage = &waProto.VideoMessage{
-			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
-			Mimetype: proto.String("video/mp4"), Caption: proto.String("✅ *Impossible Bot - Success*"),
-			FileLength: proto.Uint64(fileSize), FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256,
+			URL:           proto.String(up.URL),
+			DirectPath:    proto.String(up.DirectPath),
+			MediaKey:      up.MediaKey,
+			Mimetype:      proto.String("video/mp4"),
+			Caption:       proto.String("✅ *Video Downloaded*"),
+			FileLength:    proto.Uint64(fileSize),
+			FileSHA256:    up.FileSHA256,
+			FileEncSHA256: up.FileEncSHA256,
 		}
 	}
 
 	client.SendMessage(context.Background(), v.Info.Chat, &finalMsg)
 	react(client, v.Info.Chat, v.Info.ID, "✅")
+	
+	// میموری صاف کرنے کی کوشش (آپشنل، گو خود بھی کر لیتا ہے)
+	// debug.FreeOSMemory() 
 }
 
 // ------------------- تمام ہینڈلرز (بھرے ہوئے!) -------------------
