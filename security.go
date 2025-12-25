@@ -23,6 +23,7 @@ type BotSettings struct {
 	SelfMode   bool   `json:"self_mode"`
 	AutoStatus bool   `json:"auto_status"`
 	OnlyGroup  bool   `json:"only_group"`
+	Welcome        bool   `json:"welcome"` 
 }
 
 // 💾 1. تمام سیٹنگز ریڈیس میں محفوظ کرنا
@@ -542,48 +543,63 @@ func participantIsAdmin(p types.GroupParticipant) bool {
 func handleGroupEvents(client *whatsmeow.Client, evt interface{}) {
 	switch v := evt.(type) {
 	case *events.GroupInfo:
-		handleGroupInfoChange(client, v)
+        // ⚡ اسے الگ تھریڈ میں پھینک دیں تاکہ مین بوٹ فری رہے
+		go handleGroupInfoChange(client, v)
 	}
 }
 
 func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
-	if v.JID.IsEmpty() {
-		return
-	}
+    // 🛡️ 1. Crash Protection & Background Safety
+    defer func() {
+        if r := recover(); r != nil {
+            fmt.Printf("⚠️ Group Event Panic: %v\n", r)
+        }
+    }()
+
+	if v.JID.IsEmpty() { return }
+
+    chatID := v.JID.String()
+    
+    // ⚡ 2. Check: کیا اس گروپ میں ویلکم "ON" ہے؟
+    // ہم میموری کیش سے سیٹنگ اٹھائیں گے (Fastest)
+    settings := getGroupSettings(chatID)
+    if !settings.Welcome {
+        return // اگر آف ہے تو فوراً نکل جاؤ
+    }
 
 	// =========================================================
-	// 🛡️ ANTI-SPAM FILTER FOR GROUP EVENTS (NEW CODE)
+	// 🛡️ 3. ANTI-SPAM FILTER (Restricted Groups)
 	// =========================================================
-	
-	// 1. موجودہ بوٹ کی آئی ڈی نکالیں
 	rawBotID := client.Store.ID.User
-	botID := getCleanID(rawBotID) // یہ وہی فنکشن ہے جو commands.go میں ہے
-	chatID := v.JID.String()
+	botID := getCleanID(rawBotID)
 
-	// 2. چیک کریں کہ کیا یہ گروپ "Restricted List" میں ہے؟
+	// اگر یہ گروپ "Restricted List" میں ہے (یعنی آپ کا مین گروپ)
 	if RestrictedGroups[chatID] {
-		// 3. اگر بوٹ "Authorized List" میں نہیں ہے، تو خاموش رہے
+		// اور اگر موجودہ بوٹ "Authorized" نہیں ہے
 		if !AuthorizedBots[botID] {
-			return // ⛔ EXIT: دوسرے بوٹس یہاں سے واپس چلے جائیں گے
+			return // ⛔ چپ کر جاؤ (صرف مین بوٹ بولے گا)
 		}
 	}
 	// =========================================================
 
-	// ✅ کک یا لیو (Leave/Kick) ایونٹ
+    // ⚡ 4. Event Processing (Join, Leave, Promote, Demote)
+    
+	// ✅ کک یا لیو (Leave/Kick)
 	if v.Leave != nil && len(v.Leave) > 0 {
 		for _, left := range v.Leave {
-			sender := v.Sender // ایکشن لینے والا (ایڈمن یا خود ممبر)
+			sender := v.Sender 
 			leftStr := left.String()
-			senderStr := sender.String()
+            // نام نکالنے کی کوشش (Optional)
+            userNum := strings.Split(left.User, "@")[0]
 
-			// اگر سینڈر اور لیفٹ ممبر ایک ہی ہیں، تو یہ MANUAL LEAVE ہے
 			if sender.User == left.User {
+                // خود لیفٹ ہوا
 				msg := fmt.Sprintf(`╔════════════════╗
-║ 👋 MEMBER LEFT
+║ 👋 GOODBYE
 ╠════════════════╣
 ║ 👤 User: @%s
-║ 📉 Status: Self Leave
-╚════════════════╝`, left.User)
+║ 📉 Status: Left
+╚════════════════╝`, userNum)
 
 				client.SendMessage(context.Background(), v.JID, &waProto.Message{
 					ExtendedTextMessage: &waProto.ExtendedTextMessage{
@@ -594,23 +610,24 @@ func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
 					},
 				})
 			} else {
-				// اگر سینڈر الگ ہے، تو یہ KICK ہے - اب ایڈمن کو منشن کرے گا
+                // کک کیا گیا (By Admin)
 				msg := fmt.Sprintf(`╔════════════════╗
-║ 👢 MEMBER KICKED
+║ 👢 KICKED
 ╠════════════════╣
 ║ 👤 User: @%s
 ║ 👮 By: @%s
-╚════════════════╝`, left.User, sender.User)
+╚════════════════╝`, userNum, sender.User)
 
 				client.SendMessage(context.Background(), v.JID, &waProto.Message{
 					ExtendedTextMessage: &waProto.ExtendedTextMessage{
 						Text: proto.String(msg),
 						ContextInfo: &waProto.ContextInfo{
-							MentionedJID: []string{leftStr, senderStr}, // ممبر اور ایڈمن دونوں منشن
+							MentionedJID: []string{leftStr, sender.String()},
 						},
 					},
 				})
 			}
+            time.Sleep(500 * time.Millisecond) // چھوٹا سا وقفہ تاکہ واٹس ایپ بین نہ کرے
 		}
 	}
 
@@ -621,15 +638,14 @@ func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
 ║ 👑 PROMOTED
 ╠════════════════╣
 ║ 👤 User: @%s
-║ 🎉 Congrats!
+║ 🎉 New Admin!
 ╚════════════════╝`, promoted.User)
 
-			promotedStr := promoted.String()
 			client.SendMessage(context.Background(), v.JID, &waProto.Message{
 				ExtendedTextMessage: &waProto.ExtendedTextMessage{
 					Text: proto.String(msg),
 					ContextInfo: &waProto.ContextInfo{
-						MentionedJID: []string{promotedStr},
+						MentionedJID: []string{promoted.String()},
 					},
 				},
 			})
@@ -643,40 +659,39 @@ func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
 ║ 👤 DEMOTED
 ╠════════════════╣
 ║ 👤 User: @%s
-║ 📉 Rank Removed
+║ 📉 Admin Removed
 ╚════════════════╝`, demoted.User)
 
-			demotedStr := demoted.String()
 			client.SendMessage(context.Background(), v.JID, &waProto.Message{
 				ExtendedTextMessage: &waProto.ExtendedTextMessage{
 					Text: proto.String(msg),
 					ContextInfo: &waProto.ContextInfo{
-						MentionedJID: []string{demotedStr},
+						MentionedJID: []string{demoted.String()},
 					},
 				},
 			})
 		}
 	}
 
-	// ✅ Join event
+	// ✅ Join event (Welcome)
 	if v.Join != nil && len(v.Join) > 0 {
 		for _, joined := range v.Join {
 			msg := fmt.Sprintf(`╔════════════════╗
-║ 👋 JOINED
+║ 👋 WELCOME
 ╠════════════════╣
 ║ 👤 User: @%s
-║ 🎉 Welcome!
+║ 🎉 Enjoy here!
 ╚════════════════╝`, joined.User)
 
-			joinedStr := joined.String()
 			client.SendMessage(context.Background(), v.JID, &waProto.Message{
 				ExtendedTextMessage: &waProto.ExtendedTextMessage{
 					Text: proto.String(msg),
 					ContextInfo: &waProto.ContextInfo{
-						MentionedJID: []string{joinedStr},
+						MentionedJID: []string{joined.String()},
 					},
 				},
 			})
+            time.Sleep(500 * time.Millisecond)
 		}
 	}
 }

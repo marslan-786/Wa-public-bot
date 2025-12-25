@@ -300,6 +300,26 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		//	go StartFloodAttack(client, v) // Heavy task in background
 		case "id":
 			sendID(client, v)
+// ✅ WELCOME TOGGLE COMMAND
+        case "welcome", "wel":
+            if !isAdmin(client, v.Info.Chat, v.Info.Sender) && !isOwner(client, v.Info.Sender) {
+                replyMessage(client, v, "❌ Only Admins")
+                return
+            }
+            
+            if fullArgs == "on" || fullArgs == "enable" {
+                s := getGroupSettings(chatID)
+                s.Welcome = true
+                saveGroupSettings(s) // ڈیٹا بیس/میموری میں سیو کریں
+                replyMessage(client, v, "✅ *Welcome Messages:* ON")
+            } else if fullArgs == "off" || fullArgs == "disable" {
+                s := getGroupSettings(chatID)
+                s.Welcome = false
+                saveGroupSettings(s)
+                replyMessage(client, v, "❌ *Welcome Messages:* OFF")
+            } else {
+                replyMessage(client, v, "⚠️ Usage: .welcome on | off")
+            }
 		case "owner":
 			sendOwner(client, v)
 		case "listbots":
