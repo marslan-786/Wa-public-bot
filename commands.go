@@ -116,6 +116,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		clientsMutex.Unlock()
 	}
 
+    chatID := v.Info.Chat.String()
 	// ⚡ 5. Prefix Check (Memory First - No Redis Hit)
 	// This function `getPrefix` is already optimized to check memory first
 	prefix := getPrefix(botID)
@@ -720,6 +721,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%skick* - Remove Member    
 ║ │ 🔸 *%spromote* - Make Admin
 ║ │ 🔸 *%stagall* - Mention Everyone
+║ │ 🔸 *%swelcome* - Welcome on/off
 ║ ╰───────────────────────╯
 ║                             
 ║ ╭──── BOT SETTINGS ─────╮
@@ -773,7 +775,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		// میوزک (8)
 		p, p, p, p, p, p, p, p,
 		// گروپ (7)
-		p, p, p, p, p, p, p,
+		p, p, p, p, p, p, p, p,
 		// سیٹنگز (12)
 		p, p, p, p, p, p, p, p, p, p, p, p, p,
 		// ٹولز (16)

@@ -23,7 +23,7 @@ type BotSettings struct {
 	SelfMode   bool   `json:"self_mode"`
 	AutoStatus bool   `json:"auto_status"`
 	OnlyGroup  bool   `json:"only_group"`
-	Welcome        bool   `json:"welcome"` 
+	 
 }
 
 // 💾 1. تمام سیٹنگز ریڈیس میں محفوظ کرنا
