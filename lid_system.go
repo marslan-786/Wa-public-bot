@@ -434,25 +434,30 @@ func OnNewPairing(client *whatsmeow.Client) {
 
 // Updated permission check using LID
 func canExecuteCommand(client *whatsmeow.Client, v *events.Message, cmd string) bool {
-	// Owner always has access
-	if isOwnerByLID(client, v.Info.Sender) {
+	// 1. Owner always has access
+	if isOwner(client, v.Info.Sender) {
 		return true
 	}
 
-	// Private chats - allow all
+	// 2. Private chats - allow all
 	if !v.Info.IsGroup {
 		return true
 	}
 
-	// Group mode checks
-	s := getGroupSettings(v.Info.Chat.String())
+	// 3. ✅ FIX: Bot ID نکالیں (کیونکہ سیٹنگز اسی کی بنیاد پر ملیں گی)
+	rawBotID := client.Store.ID.User
+	botID := getCleanID(rawBotID)
 
+	// 4. ✅ FIX: Settings منگواتے وقت botID پاس کریں
+	s := getGroupSettings(botID, v.Info.Chat.String())
+
+	// 5. Group Mode Checks
 	if s.Mode == "private" {
 		return false
 	}
 
 	if s.Mode == "admin" {
-		return isGroupAdmin(client, v.Info.Chat, v.Info.Sender)
+		return isAdmin(client, v.Info.Chat, v.Info.Sender)
 	}
 
 	return true // public mode

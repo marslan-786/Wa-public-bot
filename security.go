@@ -186,23 +186,16 @@ func containsLink(text string) bool {
 	return false
 }
 
-func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSettings, action, reason string) {
+// ✅ فنکشن میں botID کا اضافہ کیا گیا ہے
+func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSettings, action, reason string, botID string) {
 	switch action {
 	case "delete":
 		// ✅ Delete for everyone
 		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, v.Info.Sender, v.Info.ID))
 		if err != nil {
-			log.Printf("❌ Delete failed: %v", err)
-			msg := `╔════════════════╗
-║ ❌ DELETE FAILED
-╠════════════════╣
-║ Bot needs admin
-╚════════════════╝`
-			replyMessage(client, v, msg)
+			// log.Printf("❌ Delete failed: %v", err) // Optional Log
 			return
 		}
-
-		log.Printf("✅ Message deleted successfully")
 
 		msg := fmt.Sprintf(`╔════════════════╗
 ║ 🚫 DELETED
@@ -224,36 +217,17 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 		})
 
 	case "deletekick":
-		// ✅ Delete for everyone
-		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, v.Info.Sender, v.Info.ID))
-		if err != nil {
-			log.Printf("❌ Delete failed: %v", err)
-			msg := `╔════════════════╗
-║ ❌ DELETE FAILED
-╠════════════════╣
-║ Bot needs admin
-╚════════════════╝`
-			replyMessage(client, v, msg)
-			return
-		}
+		// 1. Delete
+		client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, v.Info.Sender, v.Info.ID))
 
-		log.Printf("✅ Message deleted successfully")
-
-		_, err = client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
+		// 2. Kick
+		_, err := client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
 			[]types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
 		
 		if err != nil {
-			log.Printf("❌ Kick failed: %v", err)
-			msg := `╔════════════════╗
-║ ⚠️ KICK FAILED
-╠════════════════╣
-║ Bot needs admin
-╚════════════════╝`
-			replyMessage(client, v, msg)
+			replyMessage(client, v, "⚠️ Failed to Kick (Need Admin)")
 			return
 		}
-
-		log.Printf("✅ User kicked successfully")
 		
 		msg := fmt.Sprintf(`╔════════════════╗
 ║ 👢 KICKED
@@ -274,69 +248,51 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 		})
 
 	case "deletewarn":
+		// 1. Delete
+		client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, v.Info.Sender, v.Info.ID))
+
+		// 2. Update Warnings
 		senderKey := v.Info.Sender.String()
+		if s.Warnings == nil {
+			s.Warnings = make(map[string]int)
+		}
 		s.Warnings[senderKey]++
 		warnCount := s.Warnings[senderKey]
 
-		// ✅ Delete for everyone
-		_, err := client.SendMessage(context.Background(), v.Info.Chat, client.BuildRevoke(v.Info.Chat, v.Info.Sender, v.Info.ID))
-		if err != nil {
-			log.Printf("❌ Delete failed: %v", err)
-			msg := `╔════════════════╗
-║ ❌ DELETE FAILED
-╠════════════════╣
-║ Bot needs admin
-╚════════════════╝`
-			replyMessage(client, v, msg)
-			return
-		}
-
-		log.Printf("✅ Message deleted successfully")
-
 		if warnCount >= 3 {
+			// Kick after 3 warnings
 			_, err := client.UpdateGroupParticipants(context.Background(), v.Info.Chat,
 				[]types.JID{v.Info.Sender}, whatsmeow.ParticipantChangeRemove)
 			
 			if err != nil {
-				log.Printf("❌ Kick failed after 3 warnings: %v", err)
-				msg := `╔════════════════╗
-║ ⚠️ KICK FAILED
-╠════════════════╣
-║ Bot needs admin
-╚════════════════╝`
-				replyMessage(client, v, msg)
-				return
-			}
-
-			log.Printf("✅ User kicked after 3 warnings")
-
-			delete(s.Warnings, senderKey)
-			
-			msg := fmt.Sprintf(`╔════════════════╗
+				replyMessage(client, v, "⚠️ Failed to Kick (Need Admin)")
+			} else {
+				delete(s.Warnings, senderKey) // Reset warnings
+				
+				msg := fmt.Sprintf(`╔════════════════╗
 ║ 🚫 KICKED
 ╠════════════════╣
 ║ User: @%s
 ║ Warning: 3/3
-║ Kicked Out
-╚════════════════╝`, v.Info.Sender.User)
-			
-			senderStr := v.Info.Sender.String()
-			client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-				ExtendedTextMessage: &waProto.ExtendedTextMessage{
-					Text: proto.String(msg),
-					ContextInfo: &waProto.ContextInfo{
-						MentionedJID: []string{senderStr},
+║ Reason: %s
+╚════════════════╝`, v.Info.Sender.User, reason)
+				
+				senderStr := v.Info.Sender.String()
+				client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+					ExtendedTextMessage: &waProto.ExtendedTextMessage{
+						Text: proto.String(msg),
+						ContextInfo: &waProto.ContextInfo{MentionedJID: []string{senderStr}},
 					},
-				},
-			})
+				})
+			}
 		} else {
+			// Send Warning Message
 			msg := fmt.Sprintf(`╔════════════════╗
 ║ ⚠️ WARNING
 ╠════════════════╣
 ║ User: @%s
 ║ Count: %d/3
 ║ Reason: %s
-║ 3 = Kick
 ╚════════════════╝`, v.Info.Sender.User, warnCount, reason)
 			
 			senderStr := v.Info.Sender.String()
@@ -352,6 +308,7 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 			})
 		}
 
+		// ✅ FIX: Save with BotID
 		saveGroupSettings(botID, s)
 	}
 }

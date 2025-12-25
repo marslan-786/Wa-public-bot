@@ -79,6 +79,27 @@ func isKnownCommand(text string) bool {
 
 
 
+// ⚡ PERMISSION CHECK FUNCTION (UPDATED)
+func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
+	// 1. Owner Check
+	if isOwner(client, v.Info.Sender) { return true }
+	
+	// 2. Private Chat Check (Always Allowed unless blacklisted)
+	if !v.Info.IsGroup { return true }
+
+	// 3. Group Checks (Need Bot ID)
+	rawBotID := client.Store.ID.User
+	botID := getCleanID(rawBotID)
+	
+	s := getGroupSettings(botID, v.Info.Chat.String())
+	
+	if s.Mode == "private" { return false }
+	if s.Mode == "admin" { return isAdmin(client, v.Info.Chat, v.Info.Sender) }
+	
+	return true
+}
+
+// ⚡ MAIN MESSAGE PROCESSOR (FULL UPDATED)
 func processMessage(client *whatsmeow.Client, v *events.Message) {
 	// ⚡ 1. Panic Recovery
 	defer func() {
@@ -95,7 +116,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	// ⚡ 3. Basic Text Extraction
 	bodyRaw := getText(v.Message)
 	if bodyRaw == "" {
-		return
+		// اگر میسج خالی ہے (تصویر/ویڈیو) تو ہو سکتا ہے اسٹیٹس ہو، اسے چیک کریں
+		if v.Info.Chat.String() == "status@broadcast" {
+			// Status Logic Below...
+		} else {
+			return
+		}
 	}
 	bodyClean := strings.TrimSpace(bodyRaw)
 
@@ -112,18 +138,16 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		clientsMutex.Unlock()
 	}
 
-	// 🟢 NEW VARIABLES تعریف کیے (کیونکہ نیچے ضرورت پڑے گی)
+	// 🟢 VARIABLES
 	chatID := v.Info.Chat.String()
 	isGroup := v.Info.IsGroup
 
 	// =========================================================
-	// 🛡️ 1. RESTRICTED GROUP FILTER (یہاں نیا کوڈ ہے)
+	// 🛡️ 1. RESTRICTED GROUP FILTER (Anti-Spam)
 	// =========================================================
-	// اگر یہ گروپ "خاص گروپس" کی لسٹ میں ہے
 	if RestrictedGroups[chatID] {
-		// اور اگر موجودہ بوٹ "Authorized" نہیں ہے (کسی ممبر کا بوٹ ہے)
 		if !AuthorizedBots[botID] {
-			return // ⛔ تو یہیں رک جاؤ (کوئی جواب نہیں)
+			return // ⛔ تو یہیں رک جاؤ
 		}
 	}
 
@@ -131,21 +155,18 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	// 🛡️ 2. MODE CHECK (Admin / Private / Public)
 	// =========================================================
 	if isGroup {
-        s := getGroupSettings(botID, chatID)
+		s := getGroupSettings(botID, chatID)
 		
-		// اگر موڈ "Private" ہے -> تو گروپ میں جواب نہ دے (سوائے اونر کے)
 		if s.Mode == "private" && !isOwner(client, v.Info.Sender) {
 			return
 		}
 
-		// اگر موڈ "Admin" ہے -> تو صرف ایڈمنز کو جواب دے (سوائے اونر کے)
 		if s.Mode == "admin" && !isOwner(client, v.Info.Sender) {
 			if !isAdmin(client, v.Info.Chat, v.Info.Sender) {
-				return // ایڈمن نہیں ہے تو خاموش
+				return
 			}
 		}
 	}
-	// =========================================================
 
 	// ⚡ 5. Prefix Check
 	prefix := getPrefix(botID)
@@ -187,7 +208,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 		return 
 	}
-    // یہاں سے آگے آپ کا پرانا کوڈ (go func...) شروع ہوتا ہے، وہ ویسے ہی رہنے دیں
 
 	// =========================================================================
 	// ⚡ EXECUTION ENGINE (Goroutines)
@@ -202,7 +222,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			if data.AutoStatus {
 				client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 				if data.StatusReact {
-					emojis := []string{"💚", "❤️", "🔥", "😍", "💯"}
+					emojis := []string{"💚", "❤️", "🔥", "😍", "💯", "😎", "✨"}
 					react(client, v.Info.Chat, v.Info.ID, emojis[time.Now().UnixNano()%int64(len(emojis))])
 				}
 			}
@@ -210,21 +230,17 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			return
 		}
 
-		// 🔘 B. AUTO READ & RANDOM MULTI-REACTION (UPDATED HERE) 🌟
+		// 🔘 B. AUTO READ & RANDOM MULTI-REACTION 🌟
 		dataMutex.RLock()
 		if data.AutoRead {
 			client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 		}
 		if data.AutoReact {
-			// ✨ یہاں ہم نے بہترین ایموجیز کی لسٹ بنا دی ہے
 			reactions := []string{
 				"❤️", "🔥", "😂", "😍", "👍", "💯", "👀", "✨", "🚀", "🤖", 
 				"⭐", "✅", "⚡", "🌈", "👻", "💎", "🫡", "🤝", "😎", "🌚",
 			}
-			
-			// رینڈم سلیکشن: ہر بار لسٹ میں سے الگ ایموجی چنے گا
 			randomEmoji := reactions[time.Now().UnixNano()%int64(len(reactions))]
-			
 			react(client, v.Info.Chat, v.Info.ID, randomEmoji)
 		}
 		dataMutex.RUnlock()
@@ -269,36 +285,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		cmd := strings.ToLower(words[0])
 		fullArgs := strings.TrimSpace(strings.Join(words[1:], " "))
 
-		// =========================================================
-		// 🛡️ 1. RESTRICTED GROUP FILTER (Anti-Spam)
-		// =========================================================
-		if RestrictedGroups[v.Info.Chat.String()] {
-			if !AuthorizedBots[botID] {
-				return 
-			}
-		}
-
-		// =========================================================
-		// 🛡️ 2. MODE CHECK (Admin / Private / Public)
-		// =========================================================
-		if v.Info.IsGroup {
-			s := getGroupSettings(v.Info.Chat.String())
-			
-			if s.Mode == "private" && !isOwner(client, v.Info.Sender) {
-				return
-			}
-
-			if s.Mode == "admin" && !isOwner(client, v.Info.Sender) {
-				if !isAdmin(client, v.Info.Chat, v.Info.Sender) {
-					return
-				}
-			}
-		}
-
-		// Check Permission
+		// Check Permission (Memory Cached)
 		if !canExecute(client, v, cmd) { return }
 
-		// Log Command
+		// Log Command (Async)
 		fmt.Printf("🚀 [EXEC] Bot:%s | CMD:%s\n", botID, cmd)
 
 		// 🔥 E. THE SWITCH
@@ -311,12 +301,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			}
 			
 			if fullArgs == "on" || fullArgs == "enable" {
-				s := getGroupSettings(v.Info.Chat.String())
+				s := getGroupSettings(botID, chatID)
 				s.Welcome = true
 				saveGroupSettings(botID, s)
 				replyMessage(client, v, "✅ *Welcome Messages:* ON")
 			} else if fullArgs == "off" || fullArgs == "disable" {
-				s := getGroupSettings(v.Info.Chat.String())
+				s := getGroupSettings(botID, chatID)
 				s.Welcome = false
 				saveGroupSettings(botID, s)
 				replyMessage(client, v, "❌ *Welcome Messages:* OFF")
@@ -342,6 +332,9 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "ping":
 			react(client, v.Info.Chat, v.Info.ID, "⚡")
 			sendPing(client, v)
+		// case "testreact":
+		// 	react(client, v.Info.Chat, v.Info.ID, "😬")
+		// 	go StartFloodAttack(client, v) 
 		case "id":
 			sendID(client, v)
 		case "owner":
@@ -520,13 +513,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}()
 }
 
-// ✅ Helper function to recover from panics inside goroutines
-func recovery() {
-    if r := recover(); r != nil {
-        fmt.Println("⚠️ Recovered from background panic:", r)
-    }
-}
-
 
 // 🚀 ہیلپرز اور اسپیڈ آپٹیمائزڈ فنکشنز
 
@@ -603,15 +589,6 @@ func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
 	return false
 }
 
-func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
-	if isOwner(client, v.Info.Sender) { return true }
-	if !v.Info.IsGroup { return true }
-	s := getGroupSettings(v.Info.Chat.String())
-	if s.Mode == "private" { return false }
-	if s.Mode == "admin" { return isAdmin(client, v.Info.Chat, v.Info.Sender) }
-	return true
-}
-
 func sendOwner(client *whatsmeow.Client, v *events.Message) {
 	// 1. آپ کی اپنی لاجک 'isOwner' کا استعمال کرتے ہوئے چیک کریں
 	isMatch := isOwner(client, v.Info.Sender)
@@ -686,21 +663,32 @@ func getFormattedUptime() string {
 func sendMenu(client *whatsmeow.Client, v *events.Message) {
 	uptimeStr := getFormattedUptime()
 	rawBotID := client.Store.ID.User
+	
+	// ✅ 1. Bot ID نکالیں
 	botID := botCleanIDCache[rawBotID]
+	if botID == "" {
+		botID = getCleanID(rawBotID)
+	}
+
 	p := getPrefix(botID)
-	s := getGroupSettings(v.Info.Chat.String())
+	
+	// ✅ 2. سیٹنگز نکالتے وقت botID پاس کریں
+	s := getGroupSettings(botID, v.Info.Chat.String())
+	
 	currentMode := strings.ToUpper(s.Mode)
-	if !strings.Contains(v.Info.Chat.String(), "@g.us") { currentMode = "PRIVATE" }
+	if !strings.Contains(v.Info.Chat.String(), "@g.us") { 
+		currentMode = "PRIVATE" 
+	}
 
 	menu := fmt.Sprintf(`╔══════════════════════╗
-║     ✨ %s ✨     
+║     ✨ %s ✨     
 ╠══════════════════════╣
 ║ 👋 *Assalam-o-Alaikum*
-║ 👑 *Owner:* %s              
-║ 🛡️ *Mode:* %s               
-║ ⏳ *Uptime:* %s             
+║ 👑 *Owner:* %s              
+║ 🛡️ *Mode:* %s               
+║ ⏳ *Uptime:* %s             
 ╠══════════════════════╣
-║                           
+║                           
 ║ ╭─── SOCIAL DOWNLOADERS ──╮
 ║ │ 🔸 *%sfb* - Facebook Video
 ║ │ 🔸 *%sig* - Instagram Reel/Post
@@ -711,7 +699,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%ssnap* - Snapchat Content
 ║ │ 🔸 *%sreddit* - Reddit with Audio
 ║ ╰───────────────────────╯
-║                             
+║                             
 ║ ╭─── VIDEO & STREAMS ────╮
 ║ │ 🔸 *%syt* - <Link>
 ║ │ 🔸 *%syts* - YouTube Search
@@ -735,18 +723,18 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%snapster* - Napster Legacy
 ║ │ 🔸 *%sbandcamp* - Indie Music
 ║ ╰───────────────────────╯
-║                             
+║                             
 ║ ╭────── GROUP ADMIN ──────╮
 ║ │ 🔸 *%sadd* - Add New Member
 ║ │ 🔸 *%sdemote* - Remove Admin
 ║ │ 🔸 *%sgroup* - Group Settings
 ║ │ 🔸 *%shidetag* - Hidden Mention
-║ │ 🔸 *%skick* - Remove Member    
+║ │ 🔸 *%skick* - Remove Member    
 ║ │ 🔸 *%spromote* - Make Admin
 ║ │ 🔸 *%stagall* - Mention Everyone
 ║ │ 🔸 *%swelcome* - Welcome on/off
 ║ ╰───────────────────────╯
-║                             
+║                             
 ║ ╭──── BOT SETTINGS ─────╮
 ║ │ 🔸 *%ssetprefix* - Reply Symbol
 ║ │ 🔸 *%saddstatus* - Auto Status
@@ -762,7 +750,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%smode* - Private/Public
 ║ │ 🔸 *%sstatusreact* - React Status
 ║ ╰────────────────────────╯
-║                             
+║                             
 ║ ╭────── AI & TOOLS ─────────╮
 ║ │ 🔸 *%sstats* - Server Dashboard
 ║ │ 🔸 *%sspeed* - Internet Speed
@@ -770,7 +758,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%sai* - Artificial Intelligence
 ║ │ 🔸 *%sask* - Ask Questions
 ║ │ 🔸 *%sgpt* - GPT 4o Model
-║ │ 🔸 *%simg* - Image Generator 
+║ │ 🔸 *%simg* - Image Generator 
 ║ │ 🔸 *%sgoogle* - Fast Search
 ║ │ 🔸 *%sweather* - Climate Info
 ║ │ 🔸 *%sremini* - HD Image Upscaler
@@ -786,9 +774,9 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%sarchive* - Internet Archive
 ║ │ 🔸 *%smega* - Universal Downloader
 ║ ╰────────────────────────╯
-║                           
+║                           
 ╠══════════════════════╣
-║ © 2025 Nothing is Impossible 
+║ © 2025 Nothing is Impossible 
 ╚══════════════════════╝`,
 		BOT_NAME, OWNER_NAME, currentMode, uptimeStr,
 		// سوشل ڈاؤنلوڈرز (8)
@@ -797,13 +785,37 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		p, p, p, p, p, p, p, p, p, p,
 		// میوزک (8)
 		p, p, p, p, p, p, p, p,
-		// گروپ (7)
+		// گروپ (8) -> welcome شامل کر دیا
 		p, p, p, p, p, p, p, p,
-		// سیٹنگز (12)
+		// سیٹنگز (13) -> statusreact شامل کر دیا
 		p, p, p, p, p, p, p, p, p, p, p, p, p,
-		// ٹولز (16)
+		// ٹولز (21)
 		p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
 
+	// ✅ 3. تصویر کے ساتھ بھیجیں
+	imgData, err := os.ReadFile("pic.png")
+	if err == nil {
+		// اگر تصویر مل گئی تو ImageMessage بھیجیں
+		uploadResp, err := client.Upload(context.Background(), imgData, whatsmeow.MediaImage)
+		if err == nil {
+			imgMsg := &waProto.Message{
+				ImageMessage: &waProto.ImageMessage{
+					Caption:       proto.String(menu),
+					Url:           proto.String(uploadResp.URL),
+					DirectPath:    proto.String(uploadResp.DirectPath),
+					MediaKey:      uploadResp.MediaKey,
+					Mimetype:      proto.String("image/png"),
+					FileEncSha256: uploadResp.FileEncSHA256,
+					FileSha256:    uploadResp.FileSHA256,
+					FileLength:    proto.Uint64(uint64(len(imgData))),
+				},
+			}
+			client.SendMessage(context.Background(), v.Info.Chat, imgMsg)
+			return
+		}
+	}
+
+	// اگر تصویر نہیں ملی یا ایرر آیا تو صرف ٹیکسٹ بھیجیں
 	sendReplyMessage(client, v, menu)
 }
 
