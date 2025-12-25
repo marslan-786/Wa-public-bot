@@ -361,11 +361,13 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, secType str
 		return
 	}
 
-	// 🛠️ یوزر کی LID کلین کریں (صرف نمبر نکالیں)
-	// v.Info.Sender.User میں عام طور پر LID کا نمبر ہی ہوتا ہے
-	cleanSenderLID := v.Info.Sender.User 
+	// 🛠️ آئی ڈیز سیٹ اپ کریں
+	cleanSenderLID := v.Info.Sender.User
 	groupID := v.Info.Chat.String()
-	botUniqueLID := getBotLIDFromDB(client) // بوٹ کی اپنی پہچان
+	
+	// ✅ Bot ID صحیح طریقے سے نکالیں (یہ بہت اہم ہے میچنگ کے لیے)
+	rawBotID := client.Store.ID.User
+	botID := getCleanID(rawBotID) 
 
 	msgText := fmt.Sprintf(`╔════════════════╗
 ║ 🛡️ %s (1/2)
@@ -381,24 +383,25 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, secType str
 
 	if err != nil {
 		fmt.Printf("❌ ERROR: %v\n", err)
-		return 
+		return
 	}
 
-	// 🔑 میسج آئی ڈی کو ہی 'Key' بنائیں
-	mapKey := resp.ID 
+	// 🔑 میسج آئی ڈی کو ہی 'Key' بنائیں (جس پر ریپلائی آئے گا)
+	mapKey := resp.ID
 
-	fmt.Printf("\n🔥 [LOG] Card Sent | ID: %s | User LID: %s\n", resp.ID, cleanSenderLID)
+	fmt.Printf("\n🔥 [SETUP START] ID: %s | User: %s | Bot: %s\n", mapKey, cleanSenderLID, botID)
 
 	// 💾 سیشن محفوظ کریں
 	setupMap[mapKey] = &SetupState{
 		Type:     secType,
 		Stage:    1,
 		GroupID:  groupID,
-		User:     cleanSenderLID, // محفوظ شدہ کلین LID
-		BotLID:   botUniqueLID,
+		User:     cleanSenderLID,
+		BotLID:   botID, // یہاں کلین ID سیو کریں
 		BotMsgID: resp.ID,
 	}
 
+	// 2 منٹ کا ٹائمر
 	go func() {
 		time.Sleep(2 * time.Minute)
 		delete(setupMap, mapKey)
@@ -413,51 +416,54 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	quotedID := extMsg.ContextInfo.GetStanzaID()
-	incomingLID := v.Info.Sender.User // واٹس ایپ ہمیشہ LID بھیجتا ہے
+	incomingLID := v.Info.Sender.User 
 
-	// ✅ FIX 1: موجودہ بوٹ کی کلین آئی ڈی نکالیں (سیٹنگز کے لیے ضروری ہے)
+	// ✅ FIX: Bot ID نکالیں
 	rawBotID := client.Store.ID.User
 	botID := getCleanID(rawBotID)
 
-	// 1. ڈیٹا تلاش کریں
+	// 1. ڈیٹا تلاش کریں (جس میسج پر ریپلائی آیا ہے)
 	state, exists := setupMap[quotedID]
 	if !exists {
+		// اگر یہاں نہیں ملا، تو ہو سکتا ہے یہ کسی دوسرے بوٹ کا میسج ہو
 		return
 	}
 
-	// 2. بوٹ میچنگ (صرف وہی بوٹ جواب دے جس کا یہ سیشن ہے)
+	// 2. بوٹ میچنگ
 	if state.BotLID != botID {
-		return
+		return // یہ سیشن اس بوٹ کا نہیں ہے
 	}
 
 	// 3. یوزر میچنگ
-	fmt.Printf("🔍 [COMPARING] StoredLID: %s | IncomingLID: %s\n", state.User, incomingLID)
+	fmt.Printf("🔍 [SETUP MATCH] Stage: %d | User: %s vs %s\n", state.Stage, state.User, incomingLID)
 
 	if state.User != incomingLID {
-		fmt.Println("🚫 [REJECTED] User LID mismatch.")
-		// return // ٹیسٹنگ کے دوران اسے کمنٹ کر سکتے ہیں اگر LID کا مسئلہ ہو
+		fmt.Println("🚫 [REJECTED] User mismatch in setup.")
+		return 
 	}
-
-	fmt.Printf("✅ [MATCH] Stage %d logic starting...\n", state.Stage)
 
 	txt := strings.TrimSpace(getText(v.Message))
 
-	// ✅ FIX 2: سیٹنگز نکالتے وقت botID پاس کریں
+	// ✅ FIX: Settings منگواتے وقت botID پاس کریں
 	s := getGroupSettings(botID, state.GroupID)
 
-	// --- اسٹیج 1: ایڈمن بائی پاس ---
+	// ===========================
+	// 🔄 STAGE 1 LOGIC
+	// ===========================
 	if state.Stage == 1 {
 		if txt == "1" {
 			s.AntilinkAdmin = true
 		} else if txt == "2" {
 			s.AntilinkAdmin = false
 		} else {
+			replyMessage(client, v, "⚠️ Please reply with 1 or 2")
 			return
 		}
 
-		delete(setupMap, quotedID) // پرانا کارڈ ہٹائیں
+		// پرانا سیشن ڈیلیٹ کریں (کیونکہ اب ہم نیا میسج بھیج رہے ہیں)
+		delete(setupMap, quotedID)
 
-		state.Stage = 2
+		// اگلا میسج بھیجیں
 		nextMsg := fmt.Sprintf(`╔════════════════╗
 ║ ⚡ %s (2/2)
 ╠════════════════╣
@@ -466,17 +472,40 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 ║ 3️⃣ DELETE + WARN
 ╚════════════════╝`, strings.ToUpper(state.Type))
 
-		resp, _ := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+		resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(nextMsg)},
 		})
 
-		state.BotMsgID = resp.ID
-		setupMap[resp.ID] = state // نئی میسج آئی ڈی سیو کریں
-		fmt.Printf("⏭️ [NEXT] Stage 2 sent. New Wait ID: %s\n", resp.ID)
+		if err != nil {
+			fmt.Println("❌ Error sending Stage 2 msg:", err)
+			return
+		}
+
+		// ✅ نیا سیشن (Stage 2) سیو کریں
+		newKey := resp.ID
+		fmt.Printf("⏭️ [NEXT STAGE] Moving to Stage 2. New Key: %s\n", newKey)
+
+		setupMap[newKey] = &SetupState{
+			Type:     state.Type,
+			Stage:    2, // سٹیج اپڈیٹ
+			GroupID:  state.GroupID,
+			User:     state.User,
+			BotLID:   state.BotLID, // وہی Bot ID رکھیں
+			BotMsgID: resp.ID,
+		}
+		
+		// اس نئے سیشن کے لیے بھی ٹائمر لگا دیں
+		go func() {
+			time.Sleep(2 * time.Minute)
+			delete(setupMap, newKey)
+		}()
+		
 		return
 	}
 
-	// --- اسٹیج 2: ایکشن سیٹ اپ ---
+	// ===========================
+	// 🔄 STAGE 2 LOGIC
+	// ===========================
 	if state.Stage == 2 {
 		var actionText string
 		switch txt {
@@ -490,20 +519,24 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 			s.AntilinkAction = "deletewarn"
 			actionText = "Delete + Warn"
 		default:
+			replyMessage(client, v, "⚠️ Please reply with 1, 2 or 3")
 			return
 		}
 
+		// فائنل سیٹنگز اپلائی کریں
 		applySecurityFinal(s, state.Type, true)
 
-		// ✅ FIX 3: سیو کرتے وقت بھی botID پاس کریں (تاکہ Redis میں صحیح جگہ سیو ہو)
+		// ✅ FIX: Save کرتے وقت botID پاس کریں (تاکہ Redis میں صحیح سیو ہو)
 		saveGroupSettings(botID, s)
 		
-		delete(setupMap, quotedID) // سیشن ختم
+		// سیشن ختم
+		delete(setupMap, quotedID) 
 
 		adminBypass := "YES ✅"
 		if !s.AntilinkAdmin {
 			adminBypass = "NO ❌"
 		}
+		
 		finalMsg := fmt.Sprintf(`╔════════════════╗
 ║ ✅ %s ENABLED
 ╠════════════════╣
@@ -512,7 +545,7 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 ╚════════════════╝`, strings.ToUpper(state.Type), adminBypass, actionText)
 
 		replyMessage(client, v, finalMsg)
-		fmt.Printf("🏁 [COMPLETE] Setup Success for %s\n", state.Type)
+		fmt.Printf("🏁 [COMPLETE] Setup Success for %s on Bot %s\n", state.Type, botID)
 	}
 }
 
