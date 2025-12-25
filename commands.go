@@ -223,6 +223,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
             react(client, v.Info.Chat, v.Info.ID, "⚡")
             sendPing(client, v)
         case "testreact":
+            react(client, v.Info.Chat, v.Info.ID, "😬")
     // سارا لوڈ ہم نے الگ فنکشن پر ڈال دیا ہے تاکہ یہ جگہ صاف رہے
             go StartFloodAttack(client, v)
         case "id":
