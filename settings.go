@@ -80,6 +80,7 @@ func toggleAutoRead(client *whatsmeow.Client, v *events.Message) {
 }
 
 func toggleAutoReact(client *whatsmeow.Client, v *events.Message) {
+	// 1. Permission Check
 	if !isOwner(client, v.Info.Sender) {
 		msg := `╔════════════════╗
 ║ ❌ ACCESS DENIED
@@ -90,25 +91,82 @@ func toggleAutoReact(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	status := "OFF 🔴"
-	statusText := "Disabled"
-	dataMutex.Lock()
-	data.AutoReact = !data.AutoReact
-	if data.AutoReact {
-		status = "ON 🟢"
-		statusText = "Enabled"
-	}
-	dataMutex.Unlock()
+	// 2. Parse Arguments
+	// میسج سے ٹیکسٹ نکال کر چیک کریں کہ آگے "on" لکھا ہے یا "off"
+	body := strings.TrimSpace(getText(v.Message))
+	parts := strings.Fields(body)
 
-	msg := fmt.Sprintf(`╔════════════════╗
-║ ⚙️ AUTO REACT
+	dataMutex.Lock()
+	defer dataMutex.Unlock()
+
+	// 3. اگر صرف کمانڈ ہے (.autoreact) تو اسٹیٹس دکھائیں
+	if len(parts) == 1 {
+		statusIcon := "🔴"
+		statusText := "Disabled"
+		if data.AutoReact {
+			statusIcon = "🟢"
+			statusText = "Enabled"
+		}
+
+		msg := fmt.Sprintf(`╔════════════════╗
+║ ⚙️ AUTO REACT INFO
 ╠════════════════╣
 ║ 📊 Status: %s
-║ 🔄 State: %s
-║ ✅ Updated
-╚════════════════╝`, status, statusText)
+║ 📝 State: %s
+╚════════════════╝`, statusIcon, statusText)
+		replyMessage(client, v, msg)
+		return
+	}
 
-	replyMessage(client, v, msg)
+	// 4. ON / OFF Logic
+	action := strings.ToLower(parts[1])
+
+	if action == "on" || action == "enable" {
+		if data.AutoReact {
+			// اگر پہلے سے آن ہے
+			msg := `╔════════════════╗
+║ ⚠️ ALREADY ACTIVE
+╠════════════════╣
+║ Auto React is
+║ already ON 🟢
+╚════════════════╝`
+			replyMessage(client, v, msg)
+		} else {
+			// اب آن کریں
+			data.AutoReact = true
+			msg := `╔════════════════╗
+║ ✅ SUCCESS
+╠════════════════╣
+║ Auto React has
+║ been Enabled 🟢
+╚════════════════╝`
+			replyMessage(client, v, msg)
+		}
+	} else if action == "off" || action == "disable" {
+		if !data.AutoReact {
+			// اگر پہلے سے آف ہے
+			msg := `╔════════════════╗
+║ ⚠️ ALREADY OFF
+╠════════════════╣
+║ Auto React is
+║ already OFF 🔴
+╚════════════════╝`
+			replyMessage(client, v, msg)
+		} else {
+			// اب آف کریں
+			data.AutoReact = false
+			msg := `╔════════════════╗
+║ 🛑 STOPPED
+╠════════════════╣
+║ Auto React has
+║ been Disabled 🔴
+╚════════════════╝`
+			replyMessage(client, v, msg)
+		}
+	} else {
+		// غلط کمانڈ
+		replyMessage(client, v, "⚠️ Usage: .autoreact on | off")
+	}
 }
 
 func toggleAutoStatus(client *whatsmeow.Client, v *events.Message) {

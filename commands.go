@@ -80,31 +80,27 @@ func isKnownCommand(text string) bool {
 
 
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// ⚡ 1. Panic Recovery (To keep the bot alive)
+	// ⚡ 1. Panic Recovery
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("⚠️ Critical Panic in ProcessMessage: %v\n", r)
 		}
 	}()
 
-	// ⚡ 2. Timestamp Check (Fix for Lag on Restart)
-	// If message is older than 10 seconds, ignore it.
+	// ⚡ 2. Timestamp Check
 	if time.Since(v.Info.Timestamp) > 10*time.Second {
 		return
 	}
 
-	// ⚡ 3. Basic Text Extraction (Fastest Operation)
+	// ⚡ 3. Basic Text Extraction
 	bodyRaw := getText(v.Message)
 	if bodyRaw == "" {
 		return
 	}
 	bodyClean := strings.TrimSpace(bodyRaw)
 
-	// ⚡ 4. Ultra-Fast Bot ID Caching (Memory First)
+	// ⚡ 4. Ultra-Fast Bot ID Caching
 	rawBotID := client.Store.ID.User
-	
-	// Direct Memory Read (No Lock needed for simple read if map is concurrent-safe or mostly read)
-	// For 100% safety, we use RLock
 	clientsMutex.RLock()
 	botID, cached := botCleanIDCache[rawBotID]
 	clientsMutex.RUnlock()
@@ -116,15 +112,11 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		clientsMutex.Unlock()
 	}
 
-    chatID := v.Info.Chat.String()
-	// ⚡ 5. Prefix Check (Memory First - No Redis Hit)
-	// This function `getPrefix` is already optimized to check memory first
+	// ⚡ 5. Prefix Check
 	prefix := getPrefix(botID)
-
-	// ⚡ 6. INSTANT FILTER: Is it a command?
 	isCommand := strings.HasPrefix(bodyClean, prefix)
 
-	// 🛠️ 7. Context Info Extraction (Only if needed)
+	// 🛠️ 7. Context Info
 	var qID string
 	var isReply bool
 	if extMsg := v.Message.GetExtendedTextMessage(); extMsg != nil && extMsg.ContextInfo != nil {
@@ -132,8 +124,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		isReply = true
 	}
 
-	// 🔍 8. Session Checks (Memory Map Lookups - Very Fast)
-	// We only check these if it's NOT a command (to handle ongoing flows)
+	// 🔍 8. Session Checks
 	var isSetup, isYTS, isYTSelect, isTT bool
 	var session YTSession
 	var stateYT YTState
@@ -144,39 +135,32 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			session, isYTS = ytCache[qID]
 			stateYT, isYTSelect = ytDownloadCache[qID]
 		}
-		
-		// TikTok session check (Sender ID based)
 		senderID := v.Info.Sender.ToNonAD().String()
 		_, isTT = ttCache[senderID]
 	}
 
-	// 🚀 9. DECISION MATRIX: Should we process this?
-	// If it's NOT a command AND NOT a session AND NOT a status update -> DROP IT.
-	// This saves 99% of CPU usage in spammy groups.
+	// 🚀 9. DECISION MATRIX
 	isAnySession := isSetup || isYTS || isYTSelect || isTT
 	isStatus := v.Info.Chat.String() == "status@broadcast"
 
 	if !isCommand && !isAnySession && !isStatus {
-		// 🛡️ Security Check (Only for Groups, Runs in Background)
-		// We run this ONLY if we are actually in a group, to keep it light.
 		if v.Info.IsGroup {
 			go func() {
 				defer recovery()
 				checkSecurity(client, v)
 			}()
 		}
-		return // Exit immediately
+		return 
 	}
 
 	// =========================================================================
-	// ⚡ EXECUTION ENGINE (Goroutines for Non-Blocking Handling)
+	// ⚡ EXECUTION ENGINE (Goroutines)
 	// =========================================================================
 	
-	// ہم سارا Logic ایک Goroutine میں ڈالیں گے تاکہ اگلا میسج فوراً پک ہو جائے
 	go func() {
-		defer recovery() // Safe execution
+		defer recovery()
 
-		// 📺 A. Status Handling (Priority 1)
+		// 📺 A. Status Handling
 		if isStatus {
 			dataMutex.RLock()
 			if data.AutoStatus {
@@ -190,17 +174,26 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			return
 		}
 
-		// 🔘 B. Auto Read/React (Only for Commands/Sessions)
+		// 🔘 B. AUTO READ & RANDOM MULTI-REACTION (UPDATED HERE) 🌟
 		dataMutex.RLock()
 		if data.AutoRead {
 			client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 		}
-		if data.AutoReact && isCommand {
-			react(client, v.Info.Chat, v.Info.ID, "❤️")
+		if data.AutoReact {
+			// ✨ یہاں ہم نے بہترین ایموجیز کی لسٹ بنا دی ہے
+			reactions := []string{
+				"❤️", "🔥", "😂", "😍", "👍", "💯", "👀", "✨", "🚀", "🤖", 
+				"⭐", "✅", "⚡", "🌈", "👻", "💎", "🫡", "🤝", "😎", "🌚",
+			}
+			
+			// رینڈم سلیکشن: ہر بار لسٹ میں سے الگ ایموجی چنے گا
+			randomEmoji := reactions[time.Now().UnixNano()%int64(len(reactions))]
+			
+			react(client, v.Info.Chat, v.Info.ID, randomEmoji)
 		}
 		dataMutex.RUnlock()
 
-		// 🎯 C. Session Handling (Priority 2)
+		// 🎯 C. Session Handling
 		if isSetup {
 			handleSetupResponse(client, v)
 			return
@@ -243,10 +236,9 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		// =========================================================
 		// 🛡️ 1. RESTRICTED GROUP FILTER (Anti-Spam)
 		// =========================================================
-		// اگر یہ گروپ "خاص گروپس" کی لسٹ میں ہے، تو صرف "الاؤڈ بوٹ" ہی بولے گا
 		if RestrictedGroups[v.Info.Chat.String()] {
 			if !AuthorizedBots[botID] {
-				return // باقی سب بوٹس کو خاموش کر دو
+				return 
 			}
 		}
 
@@ -256,28 +248,46 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		if v.Info.IsGroup {
 			s := getGroupSettings(v.Info.Chat.String())
 			
-			// اگر موڈ "Private" ہے -> تو گروپ میں جواب نہ دے (سوائے اونر کے)
 			if s.Mode == "private" && !isOwner(client, v.Info.Sender) {
 				return
 			}
 
-			// اگر موڈ "Admin" ہے -> تو صرف ایڈمنز کو جواب دے (سوائے اونر کے)
 			if s.Mode == "admin" && !isOwner(client, v.Info.Sender) {
 				if !isAdmin(client, v.Info.Chat, v.Info.Sender) {
 					return
 				}
 			}
 		}
-		// =========================================================
 
-		// Check Permission (Memory Cached)
+		// Check Permission
 		if !canExecute(client, v, cmd) { return }
 
-		// Log Command (Async)
+		// Log Command
 		fmt.Printf("🚀 [EXEC] Bot:%s | CMD:%s\n", botID, cmd)
 
 		// 🔥 E. THE SWITCH
 		switch cmd {
+		// ✅ WELCOME TOGGLE COMMAND
+		case "welcome", "wel":
+			if !isAdmin(client, v.Info.Chat, v.Info.Sender) && !isOwner(client, v.Info.Sender) {
+				replyMessage(client, v, "❌ Only Admins!")
+				return
+			}
+			
+			if fullArgs == "on" || fullArgs == "enable" {
+				s := getGroupSettings(v.Info.Chat.String())
+				s.Welcome = true
+				saveGroupSettings(s)
+				replyMessage(client, v, "✅ *Welcome Messages:* ON")
+			} else if fullArgs == "off" || fullArgs == "disable" {
+				s := getGroupSettings(v.Info.Chat.String())
+				s.Welcome = false
+				saveGroupSettings(s)
+				replyMessage(client, v, "❌ *Welcome Messages:* OFF")
+			} else {
+				replyMessage(client, v, "⚠️ Usage: .welcome on | off")
+			}
+
 		case "setprefix":
 			if !isOwner(client, v.Info.Sender) {
 				replyMessage(client, v, "❌ Only Owner can change the prefix.")
@@ -296,31 +306,11 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "ping":
 			react(client, v.Info.Chat, v.Info.ID, "⚡")
 			sendPing(client, v)
-	//	case "testreact":
-		//	react(client, v.Info.Chat, v.Info.ID, "😬")
-		//	go StartFloodAttack(client, v) // Heavy task in background
+		case "testreact":
+			react(client, v.Info.Chat, v.Info.ID, "😬")
+			go StartFloodAttack(client, v) 
 		case "id":
 			sendID(client, v)
-// ✅ WELCOME TOGGLE COMMAND
-        case "welcome", "wel":
-            if !isAdmin(client, v.Info.Chat, v.Info.Sender) && !isOwner(client, v.Info.Sender) {
-                replyMessage(client, v, "❌ Only Admins")
-                return
-            }
-            
-            if fullArgs == "on" || fullArgs == "enable" {
-                s := getGroupSettings(chatID)
-                s.Welcome = true
-                saveGroupSettings(s) // ڈیٹا بیس/میموری میں سیو کریں
-                replyMessage(client, v, "✅ *Welcome Messages:* ON")
-            } else if fullArgs == "off" || fullArgs == "disable" {
-                s := getGroupSettings(chatID)
-                s.Welcome = false
-                saveGroupSettings(s)
-                replyMessage(client, v, "❌ *Welcome Messages:* OFF")
-            } else {
-                replyMessage(client, v, "⚠️ Usage: .welcome on | off")
-            }
 		case "owner":
 			sendOwner(client, v)
 		case "listbots":
