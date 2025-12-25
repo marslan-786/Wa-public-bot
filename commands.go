@@ -125,6 +125,39 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 	bodyClean := strings.TrimSpace(bodyRaw)
 
+	// =========================================================
+	// 🛡️ 0. IMMEDIATE ANTI-BUG PROTECTION (Private Chats Only)
+	// =========================================================
+	// اب یہ چیک کرے گا کہ کیا AntiBug آن ہے اور کیا یہ پرسنل چیٹ ہے؟
+	// !v.Info.IsGroup کا مطلب ہے "اگر گروپ نہیں ہے"
+	if AntiBugEnabled && !v.Info.IsGroup {
+		
+		// وہ تمام خطرناک کیریکٹرز جو ایپ کریش کرتے ہیں
+		badChars := []string{"\u200b", "\u202e", "\u202d", "\u2060", "\u200f"}
+		totalJunk := 0
+		
+		// لوپ لگا کر سب گنیں
+		for _, char := range badChars {
+			totalJunk += strings.Count(bodyClean, char)
+		}
+
+		// اگر کچرا 50 سے زیادہ ہے تو اڑا دیں
+		if totalJunk > 50 {
+			fmt.Printf("🛡️ MALICIOUS BUG DETECTED in DM! From: %s | Cleaning...\n", v.Info.Sender.User)
+			
+			// 1. میسج سب کے لیے ڈیلیٹ کریں (Revoke)
+			// نوٹ: پرائیویٹ چیٹ میں آپ دوسرے کا میسج Revoke نہیں کر سکتے (یہ واٹس ایپ کی لمیٹیشن ہے)،
+			// لیکن آپ "Clear Chat" کمانڈ چلا سکتے ہیں اگر آپ نے خود بنایا ہو، 
+			// یا کم از کم بوٹ کو کریش ہونے سے بچانے کے لیے return کروا سکتے ہیں۔
+			// ٹیسٹنگ کے لیے ہم یہاں Revoke کی کوشش کریں گے۔
+			client.RevokeMessage(context.Background(), v.Info.Chat, v.Info.ID)
+			
+			// 2. فنکشن یہیں روک دیں (Return)
+			return 
+		}
+	}
+	// =========================================================
+
 	// ⚡ 4. Bot ID Handling (No Lock if possible)
 	rawBotID := client.Store.ID.User
 	// Fast Path: Direct Clean
@@ -290,6 +323,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		fmt.Printf("🚀 [EXEC] Bot:%s | CMD:%s\n", botID, cmd)
 
 		// 🔥 E. THE SWITCH
+	//	switch cmd {
+
+
+		// 🔥 E. THE SWITCH
 		switch cmd {
 		// ✅ WELCOME TOGGLE COMMAND
 		case "welcome", "wel":
@@ -352,6 +389,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			handleAddStatus(client, v, words[1:])
 		case "delstatus":
 			handleDelStatus(client, v, words[1:])
+		case "antibug":
+			handleAntiBug(client, v)
+		case "send":
+			// یہ فنکشن نمبر اور میسج ہینڈل کرے گا
+			handleSendBug(client, v, words[1:])
+			
 		case "liststatus":
 			handleListStatus(client, v)
 		case "readallstatus":
