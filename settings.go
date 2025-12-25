@@ -11,6 +11,77 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+func saveGroupSettings(s *GroupSettings) {
+	// 1. پہلے میموری (RAM) میں اپڈیٹ کریں (فاسٹ ایکسیس کے لیے)
+	cacheMutex.Lock()
+	groupCache[s.ChatID] = s
+	cacheMutex.Unlock()
+
+	// 2. اب Redis میں ہمیشہ کے لیے سیو کریں
+	if rdb != nil {
+		// ڈیٹا کو JSON میں تبدیل کریں
+		jsonData, err := json.Marshal(s)
+		if err == nil {
+			// Redis Key: "group_settings:12036..."
+			key := "group_settings:" + s.ChatID
+			
+			// Redis میں سیو کریں (0 کا مطلب ہے کبھی ایکسپائر نہ ہو)
+			err := rdb.Set(ctx, key, jsonData, 0).Err()
+			if err != nil {
+				fmt.Printf("⚠️ [REDIS ERROR] Failed to save settings for %s: %v\n", s.ChatID, err)
+			} else {
+				// fmt.Println("✅ Settings saved to Redis") // (Optional Log)
+			}
+		}
+	}
+}
+
+
+func getGroupSettings(chatID string) *GroupSettings {
+	// 1. پہلے میموری (RAM) چیک کریں
+	cacheMutex.RLock()
+	s, exists := groupCache[chatID]
+	cacheMutex.RUnlock()
+
+	if exists {
+		return s
+	}
+
+	// 2. اگر میموری میں نہیں ہے، تو Redis چیک کریں
+	if rdb != nil {
+		key := "group_settings:" + chatID
+		val, err := rdb.Get(ctx, key).Result()
+		
+		if err == nil {
+			// Redis سے ڈیٹا مل گیا! اب اسے واپس Struct میں ڈالیں
+			var loadedSettings GroupSettings
+			err := json.Unmarshal([]byte(val), &loadedSettings)
+			if err == nil {
+				// میموری میں بھی رکھ لیں تاکہ اگلی بار Redis کو کال نہ کرنی پڑے
+				cacheMutex.Lock()
+				groupCache[chatID] = &loadedSettings
+				cacheMutex.Unlock()
+				
+				return &loadedSettings
+			}
+		}
+	}
+
+	// 3. اگر Redis میں بھی نہیں ہے، تو ڈیفالٹ سیٹنگز بنا کر دیں
+	// (پہلی بار جب گروپ میں بوٹ آئے گا)
+	newSettings := &GroupSettings{
+		ChatID:         chatID,
+		Mode:           "public", // ڈیفالٹ موڈ
+		Antilink:       false,
+		AntilinkAdmin:  true,     // ڈیفالٹ: ایڈمن لنک بھیج سکے
+		AntilinkAction: "delete", // ڈیفالٹ ایکشن
+		Welcome:        false,
+		Warnings:       make(map[string]int),
+	}
+
+	return newSettings
+}
+
 // ==================== سیٹنگز سسٹم ====================
 func toggleAlwaysOnline(client *whatsmeow.Client, v *events.Message) {
 	if !isOwner(client, v.Info.Sender) {
@@ -169,67 +240,112 @@ func toggleAutoReact(client *whatsmeow.Client, v *events.Message) {
 	}
 }
 
+// ✅ گلوبل سیٹنگز سیو کرنے کا ہیلپر فنکشن
+func saveGlobalSettings() {
+	if rdb != nil {
+		jsonBytes, _ := json.Marshal(data)
+		rdb.Set(ctx, "bot_global_settings", jsonBytes, 0)
+	}
+}
+
 func toggleAutoStatus(client *whatsmeow.Client, v *events.Message) {
 	if !isOwner(client, v.Info.Sender) {
-		msg := `╔════════════════╗
-║ ❌ ACCESS DENIED
-╠════════════════╣
-║ 🔒 Owner Only
-╚════════════════╝`
-		replyMessage(client, v, msg)
+		replyMessage(client, v, "❌ Owner Only!")
 		return
 	}
 
-	status := "OFF 🔴"
-	statusText := "Disabled"
+	// 1. آرگیومنٹس پارس کریں
+	body := strings.TrimSpace(getText(v.Message))
+	parts := strings.Fields(body)
+
 	dataMutex.Lock()
-	data.AutoStatus = !data.AutoStatus
-	if data.AutoStatus {
-		status = "ON 🟢"
-		statusText = "Enabled"
+	defer dataMutex.Unlock()
+
+	// 2. اگر صرف سٹیٹس چیک کرنا ہو
+	if len(parts) == 1 {
+		status := "OFF 🔴"
+		if data.AutoStatus { status = "ON 🟢" }
+		replyMessage(client, v, fmt.Sprintf("📊 *Auto Status:* %s", status))
+		return
 	}
-	dataMutex.Unlock()
+
+	// 3. On/Off لاجک
+	arg := strings.ToLower(parts[1])
+	if arg == "on" || arg == "enable" {
+		data.AutoStatus = true
+	} else if arg == "off" || arg == "disable" {
+		data.AutoStatus = false
+	} else {
+		replyMessage(client, v, "⚠️ Usage: .autostatus on | off")
+		return
+	}
+
+	// 4. ✅ Redis میں سیو کریں (تاکہ ری سٹارٹ پر یاد رہے)
+	saveGlobalSettings()
+
+	state := "Disabled"
+	icon := "🔴"
+	if data.AutoStatus {
+		state = "Enabled"
+		icon = "🟢"
+	}
 
 	msg := fmt.Sprintf(`╔════════════════╗
 ║ ⚙️ AUTO STATUS
 ╠════════════════╣
 ║ 📊 Status: %s
 ║ 🔄 State: %s
-║ ✅ Updated
-╚════════════════╝`, status, statusText)
-
+║ ✅ Saved to DB
+╚════════════════╝`, icon, state)
 	replyMessage(client, v, msg)
 }
 
 func toggleStatusReact(client *whatsmeow.Client, v *events.Message) {
 	if !isOwner(client, v.Info.Sender) {
-		msg := `╔════════════════╗
-║ ❌ ACCESS DENIED
-╠════════════════╣
-║ 🔒 Owner Only
-╚════════════════╝`
-		replyMessage(client, v, msg)
+		replyMessage(client, v, "❌ Owner Only!")
 		return
 	}
 
-	status := "OFF 🔴"
-	statusText := "Disabled"
+	body := strings.TrimSpace(getText(v.Message))
+	parts := strings.Fields(body)
+
 	dataMutex.Lock()
-	data.StatusReact = !data.StatusReact
-	if data.StatusReact {
-		status = "ON 🟢"
-		statusText = "Enabled"
+	defer dataMutex.Unlock()
+
+	if len(parts) == 1 {
+		status := "OFF 🔴"
+		if data.StatusReact { status = "ON 🟢" }
+		replyMessage(client, v, fmt.Sprintf("📊 *Status React:* %s", status))
+		return
 	}
-	dataMutex.Unlock()
+
+	arg := strings.ToLower(parts[1])
+	if arg == "on" || arg == "enable" {
+		data.StatusReact = true
+	} else if arg == "off" || arg == "disable" {
+		data.StatusReact = false
+	} else {
+		replyMessage(client, v, "⚠️ Usage: .statusreact on | off")
+		return
+	}
+
+	// ✅ Redis Save
+	saveGlobalSettings()
+
+	state := "Disabled"
+	icon := "🔴"
+	if data.StatusReact {
+		state = "Enabled"
+		icon = "🟢"
+	}
 
 	msg := fmt.Sprintf(`╔════════════════╗
 ║ ⚙️ STATUS REACT
 ╠════════════════╣
 ║ 📊 Status: %s
 ║ 🔄 State: %s
-║ ✅ Updated
-╚════════════════╝`, status, statusText)
-
+║ ✅ Saved to DB
+╚════════════════╝`, icon, state)
 	replyMessage(client, v, msg)
 }
 

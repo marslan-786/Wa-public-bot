@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/redis/go-redis/v9" 
+	_ "github.com/lib/pq"             // PostgreSQL Driver
+	_ "github.com/mattn/go-sqlite3"   // SQLite Driver (Backup only)
+	"github.com/redis/go-redis/v9"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -26,36 +26,48 @@ import (
 var (
 	client           *whatsmeow.Client
 	container        *sqlstore.Container
-	dbContainer      *sqlstore.Container  // ✅ یہ مسنگ تھا (FIXED)
-	rdb              *redis.Client 
+	dbContainer      *sqlstore.Container
+	rdb              *redis.Client
 	ctx              = context.Background()
 	persistentUptime int64
-    groupCache = make(map[string]*GroupSettings)
-    cacheMutex sync.RWMutex
+	groupCache       = make(map[string]*GroupSettings)
+	cacheMutex       sync.RWMutex
 	upgrader         = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
-	wsClients = make(map[*websocket.Conn]bool)
+	wsClients       = make(map[*websocket.Conn]bool)
 	botCleanIDCache = make(map[string]string)
 	botPrefixes     = make(map[string]string)
 	prefixMutex     sync.RWMutex
 	clientsMutex    sync.RWMutex
 	activeClients   = make(map[string]*whatsmeow.Client)
-	globalClient *whatsmeow.Client // ✅ یہ لائن لازمی ہونی چاہئے
-	ytCache         = make(map[string]YTSession) 
+	globalClient    *whatsmeow.Client
+	ytCache         = make(map[string]YTSession)
 	ytDownloadCache = make(map[string]YTState)
 )
 
-// ✅ 1. ریڈیس کنکشن (سائنس دانوں کو حیران کرنے کے لئے)
+// main.go کے اندر کہیں بھی یہ فنکشن بنا لیں
+func loadGlobalSettings() {
+	if rdb == nil { return }
+	
+	val, err := rdb.Get(ctx, "bot_global_settings").Result()
+	if err == nil {
+		dataMutex.Lock()
+		json.Unmarshal([]byte(val), &data) // پرانی سیٹنگز واپس آ گئیں
+		dataMutex.Unlock()
+		fmt.Println("✅ [REDIS] Global Bot Settings Loaded (AutoStatus, etc.)")
+	}
+}
+
+// ✅ 1. ریڈیس کنکشن
 func initRedis() {
 	redisURL := os.Getenv("REDIS_URL")
-	
+
 	if redisURL == "" {
-		fmt.Println("⚠️ [REDIS] Warning: REDIS_URL variable is empty! Falling back to localhost...")
+		fmt.Println("⚠️ [REDIS] Warning: REDIS_URL is empty! Falling back to localhost...")
 		redisURL = "redis://localhost:6379"
 	} else {
-		// سیکیورٹی کے لئے پاس ورڈ چھپا کر لاگ دکھائیں
-		fmt.Println("📡 [REDIS] Attempting to connect using provided URL...")
+		fmt.Println("📡 [REDIS] Connecting to Redis Cloud...")
 	}
 
 	opt, err := redis.ParseURL(redisURL)
@@ -65,45 +77,70 @@ func initRedis() {
 
 	rdb = redis.NewClient(opt)
 
-	// کنکشن ٹیسٹ کریں
 	_, err = rdb.Ping(ctx).Result()
 	if err != nil {
-		log.Fatalf("❌ Redis connection failed: %v | Make sure your Private URL is correct.", err)
+		log.Fatalf("❌ Redis connection failed: %v", err)
 	}
-	fmt.Println("🚀 [REDIS] Atomic connection established! System is now invincible.")
+	fmt.Println("🚀 [REDIS] Connection Established!")
 }
 
 func main() {
-	fmt.Println("🚀 IMPOSSIBLE BOT | START")
+	fmt.Println("🚀 IMPOSSIBLE BOT | STARTING ON POSTGRESQL")
 
-	// 1. ریڈیس اور اپ ٹائم کی شروعات
+	// 1. ریڈیس اور اپ ٹائم
 	initRedis()
 	loadPersistentUptime()
 	startPersistentUptimeTracker()
 
-	// 2. واٹس ایپ ڈیٹا بیس (SQLite/Postgres)
+	// 2. ڈیٹا بیس کنکشن (PostgreSQL Priority)
 	dbURL := os.Getenv("DATABASE_URL")
-	dbType := "postgres"
-	if dbURL == "" {
+	var dbType string
+
+	if dbURL != "" {
+		// ✅ اگر DATABASE_URL موجود ہے تو لازمی Postgres یوز ہوگا
+		dbType = "postgres"
+		fmt.Println("🐘 [DATABASE] Detected DATABASE_URL. Switching to PostgreSQL Mode.")
+	} else {
+		// ⚠️ اگر نہیں ہے تو مجبوری میں SQLite
 		dbType = "sqlite3"
 		dbURL = "file:impossible.db?_foreign_keys=on"
+		fmt.Println("⚠️ [DATABASE] DATABASE_URL not found! Falling back to legacy SQLite.")
 	}
 
 	dbLog := waLog.Stdout("Database", "ERROR", true)
 	var err error
+	
+	// کنٹینر بنائیں
 	container, err = sqlstore.New(context.Background(), dbType, dbURL, dbLog)
 	if err != nil {
-		log.Fatalf("❌ DB error: %v", err)
+		log.Fatalf("❌ DB Connection Error: %v", err)
 	}
+
+	// ⚡ Database Tuning (تیز رفتاری کے لئے)
+	db := container.GetDatabase()
+	if db != nil {
+		if dbType == "postgres" {
+			// ✅ Postgres کے لئے ہائی پرفارمنس سیٹنگز
+			// اب 14 بوٹس ایک ساتھ 20 کنکشن کھول سکتے ہیں، کوئی "Lock" ایرر نہیں آئے گا
+			db.SetMaxOpenConns(20) 
+			db.SetMaxIdleConns(5)
+			db.SetConnMaxLifetime(30 * time.Minute)
+			fmt.Println("✅ [TUNING] Optimized DB Pool for High Concurrency (Postgres)")
+		} else {
+			// ⚠️ SQLite کے لئے مجبوری (1 کنکشن)
+			db.SetMaxOpenConns(1)
+			fmt.Println("⚠️ [TUNING] Restricted DB Pool for File Safety (SQLite)")
+		}
+	}
+
 	dbContainer = container
 
 	// 3. ملٹی بوٹ سسٹم شروع کریں
-	fmt.Println("🤖 Initializing Multi-Bot System...")
+	fmt.Println("🤖 Initializing Multi-Bot System from Database...")
 	StartAllBots(container)
 
 	// 4. باقی سسٹمز
 	InitLIDSystem()
-	// لوڈ پریفکس فروم ریڈیس (ہم مونگو کو مکمل بائی پاس کر رہے ہیں)
 
 	// 5. ویب سرور روٹس
 	http.HandleFunc("/", serveHTML)
@@ -116,7 +153,9 @@ func main() {
 	http.HandleFunc("/del/", handleDelNumberAPI)
 
 	port := os.Getenv("PORT")
-	if port == "" { port = "8080" }
+	if port == "" {
+		port = "8080"
+	}
 
 	go func() {
 		fmt.Printf("🌐 Web Server running on port %s\n", port)
@@ -137,33 +176,33 @@ func main() {
 		activeClient.Disconnect()
 	}
 	clientsMutex.Unlock()
+	
+	// کنکشن بند کریں
+	if db != nil {
+		db.Close()
+	}
 	fmt.Println("👋 Goodbye!")
 }
 
-// ✅ ⚡ بوٹ کنیکٹ ہوتے ہی آئی ڈی اور پریفکس کیش کریں
+// ✅ ⚡ بوٹ کنیکٹ (سیم لاجک)
 func ConnectNewSession(device *store.Device) {
-	// 1. آئی ڈی حاصل کریں اور اسے صاف کریں
 	rawID := device.ID.User
 	cleanID := getCleanID(rawID)
-	
-	// 2. آئی ڈی کو میموری کیش میں محفوظ کریں (تاکہ بار بار کلین نہ کرنا پڑے)
+
 	clientsMutex.Lock()
 	botCleanIDCache[rawID] = cleanID
 	clientsMutex.Unlock()
 
-	// 3. ریڈیس (Redis) سے اس بوٹ کا مخصوص پریفکس اٹھائیں
-	// یہاں 'ctx' وہ ہے جو ہم نے main.go میں گلوبل ڈیفائن کیا ہے
+	// ریڈیس سے پریفکس
 	p, err := rdb.Get(ctx, "prefix:"+cleanID).Result()
 	if err != nil {
-		p = "." // اگر ریڈیس میں نہیں ہے تو ڈاٹ (.) ڈیفالٹ رکھیں
+		p = "."
 	}
-	
-	// 4. پریفکس کو میموری میں کیش کریں (الٹرا فاسٹ ایکسیس کے لئے)
+
 	prefixMutex.Lock()
 	botPrefixes[cleanID] = p
 	prefixMutex.Unlock()
 
-	// 5. ڈپلیکیٹ چیک: اگر یہ بوٹ پہلے سے چل رہا ہے تو دوبارہ کنیکٹ نہ کریں
 	clientsMutex.RLock()
 	_, exists := activeClients[cleanID]
 	clientsMutex.RUnlock()
@@ -172,46 +211,38 @@ func ConnectNewSession(device *store.Device) {
 		return
 	}
 
-	// 6. نیا واٹس ایپ کلائنٹ تیار کریں
 	clientLog := waLog.Stdout("Client", "ERROR", true)
 	newBotClient := whatsmeow.NewClient(device, clientLog)
-	
-	// ایونٹ ہینڈلر جوڑیں
+
 	newBotClient.AddEventHandler(func(evt interface{}) {
 		handler(newBotClient, evt)
 	})
 
-	// 7. کنکشن قائم کریں
 	err = newBotClient.Connect()
 	if err != nil {
 		fmt.Printf("❌ [CONNECT ERROR] Bot %s: %v\n", cleanID, err)
 		return
 	}
 
-	// 8. ایکٹو کلائنٹس کی لسٹ میں شامل کریں
 	clientsMutex.Lock()
 	activeClients[cleanID] = newBotClient
 	clientsMutex.Unlock()
 
-	// 9. کامیابی کا پیغام (اب یہ اسپیڈ میں ہوگا)
 	fmt.Printf("✅ [CONNECTED] Bot: %s | Prefix: %s | Status: Ready\n", cleanID, p)
 }
 
-// ✅ ⚡ ریڈیس پریفکس اپڈیٹ (مونگو ڈی بی ریپلیسمنٹ)
 func updatePrefixDB(botID string, newPrefix string) {
 	prefixMutex.Lock()
 	botPrefixes[botID] = newPrefix
 	prefixMutex.Unlock()
 
-	// ریڈیس میں سیو کریں (کبھی ڈیٹا ضائع نہیں ہوگا)
 	err := rdb.Set(ctx, "prefix:"+botID, newPrefix, 0).Err()
 	if err != nil {
 		fmt.Printf("❌ [REDIS ERR] Could not save prefix: %v\n", err)
 	}
 }
 
-// ... (باقی ویب روٹس اور ہینڈلرز ویسے ہی رہیں گے)
-
+// ... (باقی ویب روٹس سیم ہیں، انہیں تبدیل کرنے کی ضرورت نہیں) ...
 
 func serveHTML(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "web/index.html")
@@ -252,11 +283,9 @@ func broadcastWS(data interface{}) {
 	}
 }
 
-// 1. تمام سیشنز ڈیلیٹ کرنے کی اے پی آئی
 func handleDelAllAPI(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("🗑️ [API] Deleting all sessions...")
-	
-	// میموری سے کلائنٹس ڈس کنیکٹ کریں
+	fmt.Println("🗑️ [API] Deleting all sessions from POSTGRES...")
+
 	clientsMutex.Lock()
 	for id, c := range activeClients {
 		fmt.Printf("🔌 Disconnecting: %s\n", id)
@@ -265,17 +294,15 @@ func handleDelAllAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	clientsMutex.Unlock()
 
-	// ڈیٹا بیس سے تمام ڈیوائسز اڑائیں
 	devices, _ := container.GetAllDevices(context.Background())
 	for _, dev := range devices {
 		dev.Delete(context.Background())
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"success":true, "message":"All sessions wiped from DB and memory"}`)
+	fmt.Fprintf(w, `{"success":true, "message":"All sessions wiped from Database"}`)
 }
 
-// 2. مخصوص نمبر کا سیشن ڈیلیٹ کرنے کی اے پی آئی (/del/92301...)
 func handleDelNumberAPI(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
 	if len(parts) < 3 {
@@ -285,7 +312,6 @@ func handleDelNumberAPI(w http.ResponseWriter, r *http.Request) {
 	targetNum := parts[2]
 	fmt.Printf("🗑️ [API] Deleting session for: %s\n", targetNum)
 
-	// میموری سے نکالیں
 	clientsMutex.Lock()
 	if c, ok := activeClients[getCleanID(targetNum)]; ok {
 		c.Disconnect()
@@ -293,7 +319,6 @@ func handleDelNumberAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	clientsMutex.Unlock()
 
-	// ڈیٹا بیس سے نکالیں
 	devices, _ := container.GetAllDevices(context.Background())
 	deleted := false
 	for _, dev := range devices {
@@ -312,7 +337,6 @@ func handleDelNumberAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, `{"error":"Method not allowed"}`, 405)
@@ -328,41 +352,34 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// نمبر کلین کریں
 	number := strings.TrimSpace(req.Number)
 	number = strings.ReplaceAll(number, "+", "")
 	number = strings.ReplaceAll(number, " ", "")
 	number = strings.ReplaceAll(number, "-", "")
 	cleanNum := getCleanID(number)
 
-	fmt.Printf("📱 [PAIRING] New request for: %s\n", cleanNum)
+	fmt.Printf("📱 [PAIRING] New request for: %s on POSTGRES\n", cleanNum)
 
-	// ✅ اہم سٹیپ: پہلے سے موجود سیشن چیک کریں اور ڈیلیٹ کریں
 	devices, _ := container.GetAllDevices(context.Background())
 	for _, dev := range devices {
 		if getCleanID(dev.ID.User) == cleanNum {
-			fmt.Printf("🧹 [CLEANUP] Removing old session for %s before re-pairing...\n", cleanNum)
-			
-			// میموری سے ہٹائیں
+			fmt.Printf("🧹 [CLEANUP] Removing old session for %s\n", cleanNum)
 			clientsMutex.Lock()
 			if c, ok := activeClients[cleanNum]; ok {
 				c.Disconnect()
 				delete(activeClients, cleanNum)
 			}
 			clientsMutex.Unlock()
-			
-			// ڈیٹا بیس سے ہٹائیں
 			dev.Delete(context.Background())
 		}
 	}
 
-	// اب نیا ڈیوائس اور پیرنگ کوڈ بنائیں
 	newDevice := container.NewDevice()
 	tempClient := whatsmeow.NewClient(newDevice, waLog.Stdout("Pairing", "INFO", true))
-	
+
 	tempClient.AddEventHandler(func(evt interface{}) {
-        handler(tempClient, evt)
-    })
+		handler(tempClient, evt)
+	})
 
 	err := tempClient.Connect()
 	if err != nil {
@@ -370,7 +387,6 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// تھوڑا انتظار کریں تاکہ کنکشن مستحکم ہو
 	time.Sleep(5 * time.Second)
 
 	code, err := tempClient.PairPhone(context.Background(), number, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
@@ -391,7 +407,7 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 		for i := 0; i < 60; i++ {
 			time.Sleep(1 * time.Second)
 			if tempClient.Store.ID != nil {
-				fmt.Printf("🎉 [PAIRED] %s is now active!\n", cleanNum)
+				fmt.Printf("🎉 [PAIRED] %s is now active on Postgres!\n", cleanNum)
 				clientsMutex.Lock()
 				activeClients[cleanNum] = tempClient
 				clientsMutex.Unlock()
@@ -404,7 +420,6 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"success":true,"code":"%s"}`, code)
 }
-
 
 func handlePairAPILegacy(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
@@ -432,11 +447,11 @@ func handlePairAPILegacy(w http.ResponseWriter, r *http.Request) {
 
 	newDevice := container.NewDevice()
 	tempClient := whatsmeow.NewClient(newDevice, waLog.Stdout("Pairing", "INFO", true))
-	
+
 	SetGlobalClient(tempClient)
 	tempClient.AddEventHandler(func(evt interface{}) {
-        handler(tempClient, evt)
-    })
+		handler(tempClient, evt)
+	})
 
 	err := tempClient.Connect()
 	if err != nil {
@@ -468,9 +483,7 @@ func handlePairAPILegacy(w http.ResponseWriter, r *http.Request) {
 			if tempClient.Store.ID != nil {
 				fmt.Println("✅ Paired!")
 				client = tempClient
-				
 				OnNewPairing(client)
-				
 				return
 			}
 		}
@@ -499,7 +512,7 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"success":true,"message":"Session deleted"}`)
 }
-// 🚀 تمام بوٹس کو اسٹارٹ کرنے والا فنکشن
+
 func StartAllBots(container *sqlstore.Container) {
 	dbContainer = container
 	devices, err := container.GetAllDevices(context.Background())
@@ -513,7 +526,9 @@ func StartAllBots(container *sqlstore.Container) {
 
 	for _, device := range devices {
 		botNum := getCleanID(device.ID.User)
-		if seenNumbers[botNum] { continue }
+		if seenNumbers[botNum] {
+			continue
+		}
 		seenNumbers[botNum] = true
 
 		go func(dev *store.Device) {
@@ -524,21 +539,21 @@ func StartAllBots(container *sqlstore.Container) {
 			}()
 			ConnectNewSession(dev)
 		}(device)
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second) // Postgres تیز ہے، اس لئے وقفہ کم کر دیا
 	}
 	go monitorNewSessions(container)
 }
 
-// ⏳ اپ ٹائم (Uptime) لوڈ کرنے والا فنکشن
 func loadPersistentUptime() {
 	if rdb != nil {
 		val, err := rdb.Get(ctx, "total_uptime").Int64()
-		if err == nil { persistentUptime = val }
+		if err == nil {
+			persistentUptime = val
+		}
 	}
 	fmt.Println("⏳ [UPTIME] Persistent uptime loaded from Redis")
 }
 
-// ⏱️ اپ ٹائم ٹریکر
 func startPersistentUptimeTracker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	go func() {
@@ -551,24 +566,21 @@ func startPersistentUptimeTracker() {
 	}()
 }
 
-// 👑 گلوبل کلائنٹ سیٹ کرنے والا فنکشن
 func SetGlobalClient(c *whatsmeow.Client) {
 	globalClient = c
 }
 
-// 📂 گروپ سیٹنگز محفوظ کرنے والا فنکشن (جو security.go مانگ رہا ہے)
 func saveGroupSettings(s *GroupSettings) {
 	cacheMutex.Lock()
 	groupCache[s.ChatID] = s
 	cacheMutex.Unlock()
 }
-// 🆕 یہ فنکشن ہر 1 منٹ بعد چیک کرتا ہے کہ کیا کوئی نیا سیشن ایڈ ہوا ہے
+
 func monitorNewSessions(container *sqlstore.Container) {
-	ticker := time.NewTicker(60 * time.Second) // 1 منٹ کا ٹائمر
+	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// ڈیٹا بیس سے تمام ڈیوائسز نکالیں
 		devices, err := container.GetAllDevices(context.Background())
 		if err != nil {
 			continue
@@ -576,17 +588,15 @@ func monitorNewSessions(container *sqlstore.Container) {
 
 		for _, device := range devices {
 			botID := getCleanID(device.ID.User)
-			
-			// چیک کریں کہ کیا یہ بوٹ پہلے سے چل رہا ہے؟
+
 			clientsMutex.RLock()
 			_, exists := activeClients[botID]
 			clientsMutex.RUnlock()
 
-			// اگر نہیں چل رہا تو اسے کنیکٹ کریں
 			if !exists {
 				fmt.Printf("\n🆕 [AUTO-CONNECT] New session detected: %s. Connecting...\n", botID)
 				go ConnectNewSession(device)
-				time.Sleep(5 * time.Second) // سرور پر لوڈ کم کرنے کے لئے وقفہ
+				time.Sleep(2 * time.Second)
 			}
 		}
 	}

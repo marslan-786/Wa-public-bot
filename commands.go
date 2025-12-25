@@ -112,6 +112,42 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		clientsMutex.Unlock()
 	}
 
+	// 🟢 NEW VARIABLES تعریف کیے (کیونکہ نیچے ضرورت پڑے گی)
+	chatID := v.Info.Chat.String()
+	isGroup := v.Info.IsGroup
+
+	// =========================================================
+	// 🛡️ 1. RESTRICTED GROUP FILTER (یہاں نیا کوڈ ہے)
+	// =========================================================
+	// اگر یہ گروپ "خاص گروپس" کی لسٹ میں ہے
+	if RestrictedGroups[chatID] {
+		// اور اگر موجودہ بوٹ "Authorized" نہیں ہے (کسی ممبر کا بوٹ ہے)
+		if !AuthorizedBots[botID] {
+			return // ⛔ تو یہیں رک جاؤ (کوئی جواب نہیں)
+		}
+	}
+
+	// =========================================================
+	// 🛡️ 2. MODE CHECK (Admin / Private / Public)
+	// =========================================================
+	if isGroup {
+		// سیٹنگز میموری سے اٹھائیں
+		s := getGroupSettings(chatID)
+		
+		// اگر موڈ "Private" ہے -> تو گروپ میں جواب نہ دے (سوائے اونر کے)
+		if s.Mode == "private" && !isOwner(client, v.Info.Sender) {
+			return
+		}
+
+		// اگر موڈ "Admin" ہے -> تو صرف ایڈمنز کو جواب دے (سوائے اونر کے)
+		if s.Mode == "admin" && !isOwner(client, v.Info.Sender) {
+			if !isAdmin(client, v.Info.Chat, v.Info.Sender) {
+				return // ایڈمن نہیں ہے تو خاموش
+			}
+		}
+	}
+	// =========================================================
+
 	// ⚡ 5. Prefix Check
 	prefix := getPrefix(botID)
 	isCommand := strings.HasPrefix(bodyClean, prefix)
@@ -152,6 +188,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 		return 
 	}
+    // یہاں سے آگے آپ کا پرانا کوڈ (go func...) شروع ہوتا ہے، وہ ویسے ہی رہنے دیں
 
 	// =========================================================================
 	// ⚡ EXECUTION ENGINE (Goroutines)
