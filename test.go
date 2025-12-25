@@ -52,22 +52,36 @@ func StartFloodAttack(client *whatsmeow.Client, v *events.Message) {
 	msgID := strings.Split(lastPart, "?")[0]
 	inviteCode := parts[len(parts)-2]
 
-	fmt.Printf("Debug: Invite=%s, MsgID=%s\n", inviteCode, msgID)
 	replyToUser(client, userChat, "🔍 چینل ڈیٹا اٹھا رہا ہوں...")
 
-	// 1. چینل کی معلومات
+	// 1. چینل کی معلومات (Metadata)
 	metadata, err := client.GetNewsletterInfoWithInvite(context.Background(), inviteCode)
 	if err != nil {
 		replyToUser(client, userChat, fmt.Sprintf("❌ چینل نہیں ملا: %v", err))
 		return
 	}
 
-	// ہم صرف ID استعمال کریں گے، نام کی ضرورت نہیں (Error Fixed)
 	targetJID := metadata.ID
 	
-	replyToUser(client, userChat, fmt.Sprintf("✅ ٹارگٹ لاکڈ!\nID: %s\nMsgID: %s\nٹیسٹ شاٹ بھیج رہا ہوں...", targetJID, msgID))
+	// -----------------------------------------------------------
+	// FIX FOR ERROR 479: Force Follow the Channel
+	// -----------------------------------------------------------
+	replyToUser(client, userChat, "✅ ٹارگٹ لاکڈ! چینل جوائن کر رہا ہوں...")
+	
+	// بوٹ کو زبردستی فالو کروا رہے ہیں
+	err = client.FollowNewsletter(context.Background(), targetJID)
+	if err != nil {
+		// اگر پہلے سے جوائن ہے تو خیر ہے، ورنہ ایرر پرنٹ کریں
+		fmt.Println("Follow Warning:", err)
+	} else {
+		fmt.Println("Channel Followed Successfully!")
+	}
 
-	// 2. TEST SHOT (پہلے ایک ری ایکٹ ٹیسٹ)
+	// -----------------------------------------------------------
+
+	// 2. TEST SHOT
+	replyToUser(client, userChat, fmt.Sprintf("ID: %s\nMsgID: %s\nٹیسٹ شاٹ بھیج رہا ہوں...", targetJID, msgID))
+
 	testReaction := &waProto.Message{
 		ReactionMessage: &waProto.ReactionMessage{
 			Key: &waProto.MessageKey{
@@ -80,22 +94,20 @@ func StartFloodAttack(client *whatsmeow.Client, v *events.Message) {
 		},
 	}
 
-	// رسپانس چیک کریں
 	resp, err := client.SendMessage(context.Background(), targetJID, testReaction)
 	if err != nil {
 		fmt.Println("Reaction Error:", err)
-		// اگر یہاں ایرر آیا تو آپ کو واٹس ایپ پر پتہ چل جائے گا
 		replyToUser(client, userChat, fmt.Sprintf("❌ ری ایکٹ فیل ہوگیا!\nوجہ: %v", err))
 		return
 	}
 
 	fmt.Println("Test Shot Success. Server ID:", resp.ID)
-	replyToUser(client, userChat, "✅ ٹیسٹ کامیاب! 🚀\nاب 50 کا اٹیک شروع...")
+	replyToUser(client, userChat, "✅ ٹیسٹ کامیاب! 🚀\nاب 50 کا فلڈ مار رہا ہوں...")
 
-	// 3. FLOOD (اصلی کام)
+	// 3. FLOOD
 	performFlood(client, targetJID, msgID)
 	
-	replyToUser(client, userChat, "✅ مشن مکمل۔ رزلٹ چیک کریں۔")
+	replyToUser(client, userChat, "✅ مشن مکمل۔")
 }
 
 func performFlood(client *whatsmeow.Client, chatJID types.JID, msgID string) {
