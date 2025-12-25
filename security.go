@@ -719,6 +719,7 @@ func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
 
 //bug 🪲 🐛 menu
 
+// خطرناک کیریکٹرز کی لسٹ
 var badChars = []string{
 	"\u200b", // Zero Width Space
 	"\u200c", // ZWNJ
@@ -737,6 +738,26 @@ var badChars = []string{
 	"\u200f", // RTL Mark
 }
 
+// ---------------------------------------------------------
+// 1. COMMAND: .antibug (Toggle ON/OFF)
+// ---------------------------------------------------------
+// یہ فنکشن اب ایرر نہیں دے گا کیونکہ یہ client اور message قبول کر رہا ہے
+func handleAntiBug(client *whatsmeow.Client, v *events.Message) {
+	AntiBugEnabled = !AntiBugEnabled
+	
+	status := "OFF ❌"
+	if AntiBugEnabled {
+		status = "ON ✅"
+	}
+
+	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+		Conversation: proto.String("🛡️ *Anti-Bug System*\nStatus: " + status),
+	})
+}
+
+// ---------------------------------------------------------
+// 2. HELPER: Text Scanner (Logic)
+// ---------------------------------------------------------
 func extractText(m *waProto.Message) string {
 	if m.GetConversation() != "" {
 		return m.GetConversation()
@@ -747,7 +768,7 @@ func extractText(m *waProto.Message) string {
 	return ""
 }
 
-func handleAntiBug(msg string) bool {
+func scanForVirus(msg string) bool {
 	// Simple bad char scan
 	for _, bad := range badChars {
 		if strings.Contains(msg, bad) {
@@ -755,24 +776,60 @@ func handleAntiBug(msg string) bool {
 		}
 	}
 
-	// Combining marks flood check
+	// Combining marks flood check (Overloading)
 	comb := 0
 	for _, r := range msg {
 		if unicode.Is(unicode.Mn, r) {
 			comb++
-			if comb > 2 {
+			if comb > 20 { // تھوڑی لمٹ بڑھا دی تاکہ نارمل الفاظ بلاک نہ ہوں
 				return true
 			}
 		} else {
 			comb = 0
 		}
 	}
+	return false
+}
+
+// ---------------------------------------------------------
+// 3. PROTECTION: Block & Delete Logic
+// ---------------------------------------------------------
+// اس فنکشن کو آپ processMessage کے شروع میں کال کریں گے
+func AutoProtect(client *whatsmeow.Client, v *events.Message) bool {
+	// اگر سسٹم بند ہے یا گروپ ہے تو اگنور کریں (صرف پرسنل چیٹ کے لیے)
+	if !AntiBugEnabled || v.Info.IsGroup {
+		return false
+	}
+
+	text := extractText(v.Message)
+	if text == "" {
+		return false
+	}
+
+	// اگر وائرس پکڑا گیا
+	if scanForVirus(text) {
+		sender := v.Info.Sender
+		chat := v.Info.Chat
+
+		fmt.Printf("🚨 VIRUS DETECTED from %s | ACTION: BLOCK + DELETE\n", sender.User)
+
+		// A. پہلے اسے Block کریں (تاکہ مزید میسج نہ آئیں)
+		client.UpdateBlocklist(context.Background(), sender, events.BlockListActionBlock)
+
+		// B. پھر پوری چیٹ Delete کر دیں (تاکہ کریش ختم ہو جائے)
+		// "1" کا مطلب ہے میڈیا بھی ڈیلیٹ ہو جائے
+		client.DeleteChat(context.Background(), chat, "1")
+
+		return true // True کا مطلب ہے کہ وائرس تھا اور ہم نے اسے روک دیا
+	}
 
 	return false
 }
 
+// ---------------------------------------------------------
+// 4. COMMAND: .send (Testing Tool)
+// ---------------------------------------------------------
 func handleSendBug(client *whatsmeow.Client, v *events.Message, args []string) {
-
 	if len(args) < 2 {
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			Conversation: proto.String("⚠️ Usage: .send <type> <number>\nTypes: 1, 2, 3, all"),
@@ -789,6 +846,9 @@ func handleSendBug(client *whatsmeow.Client, v *events.Message, args []string) {
 
 	jid, err := types.ParseJID(targetNum)
 	if err != nil {
+		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+			Conversation: proto.String("❌ Invalid Number"),
+		})
 		return
 	}
 
@@ -826,29 +886,16 @@ func handleSendBug(client *whatsmeow.Client, v *events.Message, args []string) {
 		return
 	}
 
-	client.SendMessage(context.Background(), jid, &waProto.Message{
+	// Send to Target
+	_, err = client.SendMessage(context.Background(), jid, &waProto.Message{
 		Conversation: proto.String(finalMessage),
 	})
 
-	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-		Conversation: proto.String("✅ Sent: " + label),
-	})
-}
-
-func handleIncoming(client *whatsmeow.Client, v *events.Message) {
-	if !AntiBugEnabled {
-		return
-	}
-
-	text := extractText(v.Message)
-	if text == "" {
-		return
-	}
-
-	if handleAntiBug(text) {
+	if err != nil {
+		fmt.Println("Error sending:", err)
+	} else {
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-			Conversation: proto.String("🛡️ Anti-Bug: Dangerous Unicode blocked"),
+			Conversation: proto.String("✅ Sent: " + label + " to " + targetNum),
 		})
-		return
 	}
 }
