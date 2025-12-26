@@ -401,13 +401,14 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "mode":
 			handleMode(client, v, words[1:])
 		case "antilink":
-			startSecuritySetup(client, v, "antilink")
+			// یہاں args پاس کرنا ضروری ہے
+			startSecuritySetup(client, v, args, "antilink")
 		case "antipic":
-			startSecuritySetup(client, v, "antipic")
+			startSecuritySetup(client, v, args, "antipic")
 		case "antivideo":
-			startSecuritySetup(client, v, "antivideo")
+			startSecuritySetup(client, v, args, "antivideo")
 		case "antisticker":
-			startSecuritySetup(client, v, "antisticker")
+			startSecuritySetup(client, v, args, "antisticker")
 		case "kick":
 			handleKick(client, v, words[1:])
 		case "add":

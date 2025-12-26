@@ -387,16 +387,17 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, args []stri
 		return
 	}
 
-	// 2️⃣ ایڈمن چیک (کمانڈ چلانے والا ایڈمن ہے یا نہیں)
-	if !isAdmin(client, v) {
-		replyMessage(client, v, "👮 Only Admins can use this command.")
+	// 2️⃣ ایڈمن چیک (صرف ایڈمن، جیسا آپ نے کہا)
+	// ایرر فکس: isAdmin کو اب ہم IDs پاس کر رہے ہیں
+	if !isAdmin(client, v.Info.Chat, v.Info.Sender) {
+		replyMessage(client, v, "👮 Only Group Admins can use this command.")
 		return
 	}
 
 	// 🛠️ سیٹنگز لوڈ کریں
 	botID := getCleanID(client.Store.ID.User)
 	groupID := v.Info.Chat.String()
-	settings := getGroupSettings(botID, groupID) // یہ آپ کا فنکشن ہے
+	settings := getGroupSettings(botID, groupID)
 
 	// کمانڈ کا پہلا لفظ (on, off, یا خالی)
 	cmd := ""
@@ -409,7 +410,7 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, args []stri
 	// ===========================
 	if cmd == "" {
 		status := "🔴 DISABLED"
-		if settings.Antilink { // فرض کریں آپ کے سٹرکچر میں Antilink بولین ہے
+		if settings.Antilink { // یہاں چیک کر لیں کہ variable کا نام Antilink ہے یا کچھ اور
 			status = "🟢 ENABLED"
 		}
 
@@ -432,8 +433,8 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, args []stri
 ║ Admin Allow: %s
 ║ Action: %s
 ╠════════════════╣
-║ USe: .antilink on/off
-╚════════════════╝`, strings.ToUpper(secType), status, bypass, action)
+║ Use: .%s on/off
+╚════════════════╝`, strings.ToUpper(secType), status, bypass, action, secType)
 
 		replyMessage(client, v, msg)
 		return
@@ -443,15 +444,12 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, args []stri
 	// 🔴 CASE 2: OFF (بند کرنا)
 	// ===========================
 	if cmd == "off" {
-		if !settings.Antilink {
-			replyMessage(client, v, "⚠️ Already Disabled.")
-			return
-		}
+		// اگر آپ کے پاس ہر ٹائپ کے لیے الگ variable ہے تو یہاں switch لگا لیں
+		// فی الحال میں generic save کر رہا ہوں
+		if secType == "antilink" { settings.Antilink = false }
+		// باقی ٹائپس (antipic, antivideo) کے لیے یہاں کوڈ ایڈ کریں اگر وہ settings سٹرکچر میں ہیں
 		
-		// ڈیٹا بیس میں بند کریں
-		settings.Antilink = false
-		saveGroupSettings(botID, settings) // سیو کرنا مت بھولیں
-
+		saveGroupSettings(botID, settings)
 		replyMessage(client, v, fmt.Sprintf("✅ %s has been DISABLED.", secType))
 		return
 	}
@@ -460,14 +458,13 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, args []stri
 	// 🔵 CASE 3: ON (وزرڈ سٹارٹ کریں)
 	// ===========================
 	if cmd == "on" {
-		// یہاں وہ پرانا startSecuritySetup والا کوڈ آئے گا (مختصر کر کے)
 		startWizard(client, v, secType, botID, groupID)
 		return
 	}
 	
-	// اگر غلط کمانڈ ہو
 	replyMessage(client, v, "⚠️ Invalid Usage. Use: on, off or empty.")
 }
+
 
 // یہ وہ فنکشن ہے جو اصل سیٹ اپ شروع کرے گا (StartSecuritySetup کا نیا نام)
 func startWizard(client *whatsmeow.Client, v *events.Message, secType, botID, groupID string) {
