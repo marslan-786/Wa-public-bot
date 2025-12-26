@@ -226,7 +226,7 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 			if action != "delete" {
 				fmt.Println("⚠️ Command Link Detected! Downgrading action to DELETE ONLY.")
 				action = "delete"
-				reason = "Link in Command (Deleted Only)"
+				reason = "⬇️ Downloading..."
 			}
 			break
 		}
