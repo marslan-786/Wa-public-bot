@@ -71,8 +71,12 @@ func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
 }
 
 // ⚙️ INTERNAL LOGIC (Common for Command & Reply)
+// ⚙️ INTERNAL LOGIC (Common for Command & Reply)
 func processAIConversation(client *whatsmeow.Client, v *events.Message, query string, cmd string, isReply bool) {
-	react(client, v.Info.Chat, v.Info.ID, "🧠")
+	// اگر یہ رپلائی نہیں ہے تو ری ایکٹ کریں
+	if !isReply {
+		react(client, v.Info.Chat, v.Info.ID, "🧠")
+	}
 
 	senderID := v.Info.Sender.ToNonAD().String()
 	var history string = ""
@@ -92,18 +96,28 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 		}
 	}
 
-	// 🕵️ Prompt Engineering
+	// 🕵️ AI کی شخصیت سیٹ کریں
 	aiName := "Impossible AI"
 	if strings.ToLower(cmd) == "gpt" { aiName = "GPT-4" }
 	
-	// ہسٹری کو لمٹ کریں (تاکہ URL بہت لمبا نہ ہو جائے)
-	if len(history) > 2000 {
-		history = history[len(history)-2000:] // پچھلے 2000 حروف رکھیں
+	// ہسٹری کو لمٹ کریں
+	if len(history) > 1500 {
+		history = history[len(history)-1500:] 
 	}
 
-	// سسٹم پرومپٹ + ہسٹری + نیا سوال
+	// 🔥 [UPDATED PROMPT] - اب یہ زبان اور ٹاپک کو سختی سے فالو کرے گا
+	// ہم اسے ہدایات دے رہے ہیں کہ یوزر کے انداز کو کاپی کرے
 	fullPrompt := fmt.Sprintf(
-		"System: You are %s. You are helpful, funny and precise. Respond in user's language.\n%s\nUser: %s\nAI:",
+		"System: You are %s, a smart and friendly assistant.\n"+
+		"🔴 IMPORTANT RULES:\n"+
+		"1. **Match User's Language & Script:** If user types in Roman Urdu (e.g., 'kese ho'), reply ONLY in Roman Urdu. If user types in Urdu Script (e.g., 'کیسے ہو'), reply in Urdu Script. If English, reply in English. NEVER use Hindi/Devanagari script.\n"+
+		"2. **Detect Topic Change:** The provided history is for context ONLY. If the User's NEW message changes the topic (e.g., from Weather to Friendship), STOP talking about the old topic immediately. Focus 100%% on the new message.\n"+
+		"3. **Be Casual:** Do not be overly formal. Talk like a close friend.\n"+
+		"----------------\n"+
+		"Chat History:\n%s\n"+
+		"----------------\n"+
+		"User's New Message: %s\n"+
+		"AI Response:",
 		aiName, history, query)
 
 	// 🚀 ماڈلز کی لسٹ
@@ -134,7 +148,9 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	}
 
 	if !success {
-		replyMessage(client, v, "🤖 Brain Overload! Try again.")
+		if !isReply {
+			replyMessage(client, v, "🤖 Brain Overload! Try again.")
+		}
 		return
 	}
 
@@ -153,22 +169,23 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	if err == nil {
 		// --- REDIS: نیا ڈیٹا محفوظ کریں ---
 		if rdb != nil {
+			// ہم ہسٹری میں یوزر کا نیا میسج اور AI کا جواب سیو کر رہے ہیں
 			newHistory := fmt.Sprintf("%s\nUser: %s\nAI: %s", history, query, finalResponse)
 			
 			newSession := AISession{
 				History:     newHistory,
-				LastMsgID:   respPtr.ID, // ✅ یہاں ہم AI کے میسج کی ID سیو کر رہے ہیں
+				LastMsgID:   respPtr.ID, 
 				LastUpdated: time.Now().Unix(),
 			}
 			
 			jsonData, _ := json.Marshal(newSession)
-			// 30 منٹ کا ٹائم آؤٹ (اس کے بعد چیٹ بھول جائے گا)
 			rdb.Set(context.Background(), "ai_session:"+senderID, jsonData, 30*time.Minute)
 		}
 		
-		// اگر یہ رپلائی نہیں تھا تو گرین ٹک، ورنہ خاموشی
+		// اگر یہ رپلائی نہیں تھا تو گرین ٹک
 		if !isReply {
 			react(client, v.Info.Chat, v.Info.ID, "✅")
 		}
 	}
 }
+
