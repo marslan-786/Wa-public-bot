@@ -135,9 +135,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}()
 
-	// ⚡ 2. Timestamp Check (Relaxed to 60s as discussed)
-	// پہلے یہ 3 سیکنڈ تھا، اب اسے بڑھا کر 60 سیکنڈ کر دیا گیا ہے تاکہ
-	// اگر سرور تھوڑا مصروف بھی ہو تو کمانڈز ضائع نہ ہوں۔
+	// ⚡ 2. Timestamp Check (Relaxed to 60s)
 	if time.Since(v.Info.Timestamp) > 60*time.Second {
 		return
 	}
@@ -198,10 +196,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			dataMutex.RUnlock()
 
 			if shouldView {
-				// Status Read
 				client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
-				
-				// Status React
 				if shouldReact {
 					emojis := []string{"💚", "❤️", "🔥", "😍", "💯", "😎", "✨"}
 					react(client, v.Info.Chat, v.Info.ID, emojis[time.Now().UnixNano()%int64(len(emojis))])
@@ -211,12 +206,8 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 
 		// 🔘 B. AUTO READ & REACT (ASYNC MODE 🚀)
-		// یہ حصہ اب ایک الگ Goroutine میں چل رہا ہے تاکہ یہ مین کمانڈ کو بلاک نہ کرے۔
-		// اس سے بوٹ کا رسپانس ٹائم بہت تیز ہو جائے گا، چاہے ری ایکشن تھوڑا لیٹ ہو جائے۔
 		go func() {
-			// Panic protection for inner routine
 			defer func() { recover() }()
-
 			dataMutex.RLock()
 			doRead := data.AutoRead
 			doReact := data.AutoReact
@@ -228,8 +219,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			if doReact {
 				reactions := []string{"❤️", "🔥", "😂", "😍", "👍", "💯", "👀", "✨", "🚀", "🤖", "⭐", "✅", "⚡", "😎"}
 				randomEmoji := reactions[time.Now().UnixNano()%int64(len(reactions))]
-				
-				// React Message Manually to handle context properly in async
 				client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 					ReactionMessage: &waProto.ReactionMessage{
 						Key: &waProto.MessageKey{
@@ -245,16 +234,17 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}()
 
 		// 🔍 C. Session Checks (Reply Handling)
-		var qID string
-		if extMsg := v.Message.GetExtendedTextMessage(); extMsg != nil && extMsg.ContextInfo != nil {
-			qID = extMsg.ContextInfo.GetStanzaID()
+		// یہ حصہ تبھی چلے گا جب میسج "Reply" والا ہو (تیز رفتاری کے لیے)
+		extMsg := v.Message.GetExtendedTextMessage()
+		if extMsg != nil && extMsg.ContextInfo != nil && extMsg.ContextInfo.StanzaID != nil {
+			qID := extMsg.ContextInfo.GetStanzaID()
 
-			// Setup Wizard Response
+			// 1. Setup Wizard
 			if _, ok := setupMap[qID]; ok {
 				handleSetupResponse(client, v)
 				return
 			}
-			// YouTube Search Menu
+			// 2. YouTube Search Menu
 			if session, ok := ytCache[qID]; ok && session.BotLID == botID {
 				var idx int
 				n, _ := fmt.Sscanf(bodyClean, "%d", &idx)
@@ -264,15 +254,25 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 					return
 				}
 			}
-			// YouTube Format Selection
+			// 3. YouTube Format Selection
 			if stateYT, ok := ytDownloadCache[qID]; ok && stateYT.BotLID == botID {
 				delete(ytDownloadCache, qID)
 				go handleYTDownload(client, v, stateYT.Url, bodyClean, (bodyClean == "4"))
 				return
 			}
+
+			// 🔥 4. AI CONTEXTUAL REPLY (Only check if it's a reply)
+			// اگر میسج کمانڈ نہیں ہے، تبھی AI چیک کریں تاکہ کمانڈز بلاک نہ ہوں
+			if !isCommand {
+				// یہ فنکشن (ai_tool.go میں) خود چیک کرے گا کہ کیا رپلائی AI میسج پر ہے؟
+				// اگر نہیں، تو یہ فوراً false ریٹرن کرے گا اور ٹائم ضائع نہیں ہوگا۔
+				if handleAIReply(client, v) {
+					return
+				}
+			}
 		}
 
-		// TikTok No-Command Reply
+		// TikTok No-Command Reply (Existing)
 		if _, ok := ttCache[senderID]; ok && !isCommand {
 			if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
 				handleTikTokReply(client, v, bodyClean, senderID)
@@ -304,10 +304,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 		parts := strings.Fields(bodyClean) // For Args extraction
 		cmd := strings.ToLower(words[0])
-		args := parts[1:] // Variable kept for potential future use or specific handlers
+		args := parts[1:]
 		fullArgs := strings.TrimSpace(strings.Join(words[1:], " "))
 
-		// 🛡️ E. PERMISSION CHECK (Now using Cached isAdmin)
+		// 🛡️ E. PERMISSION CHECK (Cached)
 		if !canExecute(client, v, cmd) {
 			return
 		}
@@ -315,7 +315,8 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		// Log Command
 		fmt.Printf("🚀 [EXEC] Bot:%s | CMD:%s\n", botID, cmd)
 
-		// 🔥 F. THE SWITCH (Commands Execution)
+		// 🔥 F. THE SWITCH (Commands Execution Starts Below)
+
 		// 🔥 F. THE SWITCH (Commands Execution)
 		switch cmd {
 
@@ -901,136 +902,164 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 	if !v.Info.IsGroup { currentMode = "PRIVATE" }
 
 	menu := fmt.Sprintf(`╔══════════════════════╗
-║     ✨ %s ✨     
+║    ✨ %s ✨      
 ╠══════════════════════╣
-║ 👋 *Assalam-o-Alaikum*
-║ 👑 *Owner:* %s              
-║ 🛡️ *Mode:* %s               
-║ ⏳ *Uptime:* %s             
+║ 👑 *Owner:* %s
+║ 🛡️ *Mode:* %s
+║ ⏳ *Uptime:* %s
 ╠══════════════════════╣
-║                           
-║ ╭─── SOCIAL DOWNLOADERS ──╮
-║ │ 🔸 *%sfb* - Facebook Video
-║ │ 🔸 *%sig* - Instagram Reel/Post
-║ │ 🔸 *%stt* - TikTok No Watermark
-║ │ 🔸 *%stw* - Twitter/X Media
-║ │ 🔸 *%spin* - Pinterest Downloader
-║ │ 🔸 *%sthreads* - Threads Video
-║ │ 🔸 *%ssnap* - Snapchat Content
-║ │ 🔸 *%sreddit* - Reddit with Audio
-║ ╰───────────────────────╯
-║                             
-║ ╭─── VIDEO & STREAMS ────╮
-║ │ 🔸 *%syt* - <Link>
-║ │ 🔸 *%syts* - YouTube Search
+║
+║ ╭── 🎬 MOVIE & STREAMS ──╮
+║ │ 🔸 *%syt* - YouTube Video
+║ │ 🔸 *%syts* - YT Search
+║ │ 🔸 *%sdm* - DailyMotion
+║ │ 🔸 *%svimeo* - Vimeo Pro
+║ │ 🔸 *%srumble* - Rumble
+║ │ 🔸 *%sbilibili* - Anime
+║ │ 🔸 *%sdouyin* - Chinese TT
+║ │ 🔸 *%skwai* - Kwai Video
+║ │ 🔸 *%sbitchute* - BitChute
+║ │ 🔸 *%sted* - TED Talks
 ║ │ 🔸 *%stwitch* - Twitch Clips
-║ │ 🔸 *%sdm* - DailyMotion HQ
-║ │ 🔸 *%svimeo* - Vimeo Pro Video
-║ │ 🔸 *%srumble* - Rumble Stream
-║ │ 🔸 *%sbilibili* - Bilibili Anime
-║ │ 🔸 *%sdouyin* - Chinese TikTok
-║ │ 🔸 *%skwai* - Kwai Short Video
-║ │ 🔸 *%sbitchute* - BitChute Alt
 ║ ╰───────────────────────╯
 ║
-║ ╭─── MUSIC PLATFORMS ────╮
-║ │ 🔸 *%ssc* - SoundCloud Music
-║ │ 🔸 *%sspotify* - Spotify Track
+║ ╭─── 🎵 MUSIC STUDIO ────╮
+║ │ 🔸 *%sspotify* - Spotify
+║ │ 🔸 *%ssc* - SoundCloud
 ║ │ 🔸 *%sapple* - Apple Music
-║ │ 🔸 *%sdeezer* - Deezer Rippin
-║ │ 🔸 *%stidal* - Tidal HQ Audio
-║ │ 🔸 *%smixcloud* - DJ Mixsets
-║ │ 🔸 *%snapster* - Napster Legacy
-║ │ 🔸 *%sbandcamp* - Indie Music
+║ │ 🔸 *%sdeezer* - Deezer
+║ │ 🔸 *%stidal* - Tidal HQ
+║ │ 🔸 *%smixcloud* - DJ Sets
+║ │ 🔸 *%snapster* - Napster
+║ │ 🔸 *%sbandcamp* - Indie
 ║ ╰───────────────────────╯
-║                             
-║ ╭────── GROUP ADMIN ──────╮
-║ │ 🔸 *%sadd* - Add New Member
-║ │ 🔸 *%sdemote* - Remove Admin
-║ │ 🔸 *%sgroup* - Group Settings
-║ │ 🔸 *%shidetag* - Hidden Mention
-║ │ 🔸 *%skick* - Remove Member    
-║ │ 🔸 *%spromote* - Make Admin
-║ │ 🔸 *%stagall* - Mention Everyone
-║ │ 🔸 *%swelcome* - Welcome on/off
+║
+║ ╭── 📱 SOCIAL MEDIA ─────╮
+║ │ 🔸 *%sfb* - Facebook
+║ │ 🔸 *%sig* - Instagram
+║ │ 🔸 *%stt* - TikTok (No-WM)
+║ │ 🔸 *%stw* - Twitter/X
+║ │ 🔸 *%spin* - Pinterest
+║ │ 🔸 *%ssnap* - Snapchat
+║ │ 🔸 *%sthreads* - Threads
+║ │ 🔸 *%sreddit* - Reddit
+║ │ 🔸 *%s9gag* - 9GAG Fun
+║ │ 🔸 *%sifunny* - iFunny Memes
 ║ ╰───────────────────────╯
-║                             
-║ ╭──── BOT SETTINGS ─────╮
-║ │ 🔸 *%ssetprefix* - Reply Symbol
-║ │ 🔸 *%saddstatus* - Auto Status
-║ │ 🔸 *%salwaysonline* - Online 24/7
-║ │ 🔸 *%santilink* - Link Protection
-║ │ 🔸 *%santipic* - No Images Mode
-║ │ 🔸 *%santisticker* - No Stickers
-║ │ 🔸 *%santivideo* - No Video Mode
-║ │ 🔸 *%sautoreact* - Automatic React
-║ │ 🔸 *%sautoread* - Blue Tick Mark
-║ │ 🔸 *%sautostatus* - Status View
-║ │ 🔸 *%sdelstatus* - Remove Status
-║ │ 🔸 *%smode* - Private/Public
-║ │ 🔸 *%sstatusreact* - React Status
-║ ╰────────────────────────╯
-║                             
-║ ╭────── AI & TOOLS ─────────╮
-║ │ 🔸 *%sstats* - Server Dashboard
+║
+║ ╭── 🌐 WEB & SEARCH ────╮
+║ │ 🔸 *%smega* - Mega/File DL
+║ │ 🔸 *%sgit* - GitHub Repo
+║ │ 🔸 *%simgur* - Imgur Media
+║ │ 🔸 *%sarchive* - Web Archive
+║ │ 🔸 *%ssteam* - Steam Games
+║ │ 🔸 *%sgiphy* - GIF Search
+║ │ 🔸 *%sflickr* - Flickr Image
+║ │ 🔸 *%sgoogle* - Google Search
+║ │ 🔸 *%sweather* - Weather Info
+║ ╰───────────────────────╯
+║
+║ ╭─── 🧠 AI & UTILS ─────╮
+║ │ 🔸 *%sai* - Gemini AI
+║ │ 🔸 *%sgpt* - Chat GPT-4o
+║ │ 🔸 *%simg* - Image Gen
+║ │ 🔸 *%sremini* - HD Upscale
+║ │ 🔸 *%sremovebg* - BG Remove
+║ │ 🔸 *%str* - Translate
+║ │ 🔸 *%sfancy* - Fancy Text
+║ │ 🔸 *%sss* - Screenshot
+║ │ 🔸 *%sstats* - System Stats
 ║ │ 🔸 *%sspeed* - Internet Speed
-║ │ 🔸 *%sss* - Web Screenshot
-║ │ 🔸 *%sai* - Artificial Intelligence
-║ │ 🔸 *%sask* - Ask Questions
-║ │ 🔸 *%sgpt* - GPT 4o Model
-║ │ 🔸 *%simg* - Image Generator 
-║ │ 🔸 *%sgoogle* - Fast Search
-║ │ 🔸 *%sweather* - Climate Info
-║ │ 🔸 *%sremini* - HD Image Upscaler
-║ │ 🔸 *%sremovebg* - Background Eraser
-║ │ 🔸 *%sfancy* - Stylish Text
-║ │ 🔸 *%stoptt* - Convert to Audio
-║ │ 🔸 *%svv* - ViewOnce Bypass
-║ │ 🔸 *%ssticker* - Image to Sticker
-║ │ 🔸 *%stoimg* - Sticker to Image
-║ │ 🔸 *%stogif* - Sticker To Gif
-║ │ 🔸 *%stovideo* - Sticker to Video
-║ │ 🔸 *%sgit* - GitHub Downloader
-║ │ 🔸 *%sarchive* - Internet Archive
-║ │ 🔸 *%smega* - Universal Downloader
-║ ╰────────────────────────╯
-║                           
-╠══════════════════════╣
-║ © 2025 Nothing is Impossible 
+║ │ 🔸 *%sping* - Bot Response
+║ │ 🔸 *%sid* - Chat/User ID
+║ │ 🔸 *%sdata* - Data Status
+║ │ 🔸 *%sowner* - Owner Card
+║ ╰───────────────────────╯
+║
+║ ╭─── 🎨 MEDIA TOOLS ────╮
+║ │ 🔸 *%ssticker* - To Sticker
+║ │ 🔸 *%stoimg* - Sticker2Img
+║ │ 🔸 *%stogif* - Sticker2Gif
+║ │ 🔸 *%stovideo* - Sticker2Vid
+║ │ 🔸 *%stourl* - Media URL
+║ │ 🔸 *%stoptt* - Text to Audio
+║ │ 🔸 *%svv* - Anti-ViewOnce
+║ ╰───────────────────────╯
+║
+║ ╭── 👥 GROUP ADMIN ─────╮
+║ │ 🔸 *%sadd* - Add User
+║ │ 🔸 *%skick* - Kick User
+║ │ 🔸 *%spromote* - Make Admin
+║ │ 🔸 *%sdemote* - Demote
+║ │ 🔸 *%sgroup* - Settings
+║ │ 🔸 *%stagall* - Tag All
+║ │ 🔸 *%shidetag* - Hidden Tag
+║ │ 🔸 *%swelcome* - Welcome
+║ │ 🔸 *%sdel* - Delete Msg
+║ ╰───────────────────────╯
+║
+║ ╭── 🛡️ GROUP SECURITY ──╮
+║ │ 🔸 *%smode* - Public/Admin
+║ │ 🔸 *%santilink* - Block Links
+║ │ 🔸 *%santipic* - Block Pics
+║ │ 🔸 *%santivideo* - Block Vids
+║ │ 🔸 *%santisticker* - Block Sticker
+║ ╰───────────────────────╯
+║
+║ ╭── ⚙️ OWNER CONTROL ───╮
+║ │ 🔸 *%ssetprefix* - Set Prefix
+║ │ 🔸 *%salwaysonline* - 24/7 On
+║ │ 🔸 *%sautoread* - Auto Seen
+║ │ 🔸 *%sautoreact* - Auto Like
+║ │ 🔸 *%sautostatus* - View Status
+║ │ 🔸 *%sstatusreact* - Like Status
+║ │ 🔸 *%saddstatus* - Add Target
+║ │ 🔸 *%sdelstatus* - Del Target
+║ │ 🔸 *%sliststatus* - List Target
+║ │ 🔸 *%sreadallstatus* - Read All
+║ │ 🔸 *%santibug* - Bug Protect
+║ │ 🔸 *%ssend* - Send Bug
+║ │ 🔸 *%ssd* - Del Session
+║ │ 🔸 *%slistbots* - Active Bots
+║ ╰───────────────────────╯
 ╚══════════════════════╝`,
 		BOT_NAME, OWNER_NAME, currentMode, uptimeStr,
-		// سوشل ڈاؤنلوڈرز (8)
+		// 🎬 Movie (11) -> ted شامل کر دیا
+		p, p, p, p, p, p, p, p, p, p, p,
+		// 🎵 Music (8)
 		p, p, p, p, p, p, p, p,
-		// ویڈیوز (10)
+		// 📱 Social (10) -> 9gag, ifunny شامل
 		p, p, p, p, p, p, p, p, p, p,
-		// میوزک (8)
-		p, p, p, p, p, p, p, p,
-		// گروپ (8) -> welcome شامل کر دیا
-		p, p, p, p, p, p, p, p,
-		// سیٹنگز (13) -> statusreact شامل کر دیا
-		p, p, p, p, p, p, p, p, p, p, p, p, p,
-		// ٹولز (21)
-		p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
+		// 🌐 Web (9) -> giphy, flickr شامل
+		p, p, p, p, p, p, p, p, p,
+		// 🧠 AI & Utils (14) -> id, data شامل
+		p, p, p, p, p, p, p, p, p, p, p, p, p, p,
+		// 🎨 Media Tools (7)
+		p, p, p, p, p, p, p,
+		// 👥 Group Admin (9)
+		p, p, p, p, p, p, p, p, p,
+		// 🛡️ Group Security (5)
+		p, p, p, p, p,
+		// ⚙️ Owner Control (14)
+		p, p, p, p, p, p, p, p, p, p, p, p, p, p)
 
-	// ✅ 3. تصویر کے ساتھ بھیجیں
+	// 🚀 CACHING LOGIC
 	if cachedMenuImage != nil {
 		fmt.Println("🚀 Using Cached Menu Image (Super Fast)")
 		msg := &waProto.Message{
 			ImageMessage: cachedMenuImage, // پرانا والا آبجیکٹ
 		}
-		// کیپشن نیا لگانا ضروری ہے کیونکہ ٹائم وغیرہ بدل سکتا ہے
 		msg.ImageMessage.Caption = proto.String(menu)
 		client.SendMessage(context.Background(), v.Info.Chat, msg)
 		return
 	}
 
-	// اگر پہلی بار ہے تو اپلوڈ کرو
+	// First Time Upload
 	fmt.Println("📤 Uploading Menu Image for the first time...")
 	imgData, err := os.ReadFile("pic.png")
 	if err == nil {
 		uploadResp, err := client.Upload(context.Background(), imgData, whatsmeow.MediaImage)
 		if err == nil {
-			// گلوبل ویری ایبل میں محفوظ کر لیں
 			cachedMenuImage = &waProto.ImageMessage{
 				URL:           proto.String(uploadResp.URL),
 				DirectPath:    proto.String(uploadResp.DirectPath),
@@ -1042,7 +1071,6 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 				Caption:       proto.String(menu),
 			}
 			
-			// میسج بھیجیں
 			client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 				ImageMessage: cachedMenuImage,
 			})
@@ -1050,10 +1078,8 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// اگر تصویر فیل ہو جائے تو سادہ ٹیکسٹ
 	sendReplyMessage(client, v, menu)
 }
-
 
 func recovery() {
 	if r := recover(); r != nil {

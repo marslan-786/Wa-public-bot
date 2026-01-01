@@ -37,57 +37,6 @@ func sendToolCard(client *whatsmeow.Client, v *events.Message, title, tool, info
 }
 
 // 1. 🧠 AI BRAIN (.ai) - Real Gemini/DeepSeek Logic
-func handleAI(client *whatsmeow.Client, v *events.Message, query string, cmd string) {
-	if query == "" {
-		replyMessage(client, v, "⚠️ Please provide a prompt.")
-		return
-	}
-	react(client, v.Info.Chat, v.Info.ID, "🧠")
-
-	// 🕵️ پہچان سیٹ کریں
-	aiName := "Impossible AI"
-	if strings.ToLower(cmd) == "gpt" { aiName = "GPT-4" }
-	systemInstructions := fmt.Sprintf("You are %s. Respond in the user's language. Be brief and professional.", aiName)
-
-	// 🚀 ماڈلز کی لسٹ (ترجیحی بنیاد پر)
-	// ہم 'unity' کو نکال رہے ہیں کیونکہ وہ گالیاں دے رہا تھا 😂
-	models := []string{"openai", "mistral"}
-	
-	var finalResponse string
-	success := false
-
-	for _, model := range models {
-		apiUrl := fmt.Sprintf("https://text.pollinations.ai/%s?model=%s&system=%s", 
-			url.QueryEscape(query), model, url.QueryEscape(systemInstructions))
-
-		resp, err := http.Get(apiUrl)
-		if err != nil { continue } // اگر کنکشن فیل ہو تو اگلے ماڈل پر جاؤ
-		
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		res := string(body)
-
-		// 🔍 چیک کریں: کیا جواب JSON ہے یا سادہ ٹیکسٹ؟
-		// اگر جواب میں {"error" یا {"status" ہے تو اس کا مطلب ہے وہ ایرر ہے
-		if strings.HasPrefix(res, "{") && strings.Contains(res, "error") {
-			fmt.Printf("⚠️ [AI DEBUG] Model %s failed, trying next...\n", model)
-			continue 
-		}
-
-		// اگر یہاں پہنچ گئے تو مطلب ٹیکسٹ صحیح مل گیا ہے
-		finalResponse = res
-		success = true
-		break
-	}
-
-	if !success {
-		replyMessage(client, v, "🤖 *Impossible AI:* All neural nodes are currently congested. Please try later.")
-		return
-	}
-	
-	replyMessage(client, v, finalResponse)
-	react(client, v.Info.Chat, v.Info.ID, "✅")
-}
 
 func handleImagine(client *whatsmeow.Client, v *events.Message, prompt string) {
 	if prompt == "" {
