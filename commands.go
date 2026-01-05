@@ -441,7 +441,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			sendMenu(client, v)
         case "hacking":
             react(client, v.Info.Chat, v.Info.ID, "👿")
-            go HandleHackingPrank(client, evt)
+            go HandleHackingPrank(client, v)
 		case "ping":
 			// نوٹ: sendPing کے اندر بھی ری ایکشن ہے، لیکن یہاں لگانے سے فوری رسپانس ملے گا
 			react(client, v.Info.Chat, v.Info.ID, "⚡")

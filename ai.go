@@ -201,7 +201,7 @@ func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
 	}
 
 	// 2. Get Group Info to find participants
-	groupInfo, err := client.GetGroupInfo(evt.Info.Chat)
+	groupInfo, err := client.GetGroupInfo(context.Background(), evt.Info.Chat)
 	if err != nil {
 		fmt.Println("Failed to get group info:", err)
 		return
@@ -225,7 +225,7 @@ func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
 				Text: &text,
 				ContextInfo: &waE2E.ContextInfo{
 					// This line ensures the user is actually tagged (blue text)
-					MentionedJid: []string{participant.JID.String()},
+					MentionedJID: []string{participant.JID.String()},
 				},
 			},
 		}
