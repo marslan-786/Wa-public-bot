@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waE2E" // 🟢 NEW PATH (Research Verified)
+	"go.mau.fi/whatsmeow/proto/waE2E" // ✅ New Library Path
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -73,7 +73,7 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 		sendNativeFlow(client, chatJID, "📂 *List Menu Test*", "نیچے مینیو کھولیں۔", "single_select", listParams)
 
 	default:
-		menu := "🛠️ *BUTTON TESTER MENU (New Lib)*\n\n" +
+		menu := "🛠️ *BUTTON TESTER MENU (waE2E)*\n\n" +
 			"➤ `.btn 1` : Copy Code Button\n" +
 			"➤ `.btn 2` : Open URL Button\n" +
 			"➤ `.btn 3` : List Menu\n"
@@ -85,7 +85,7 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 }
 
 // ---------------------------------------------------------
-// 👇 HELPER FUNCTIONS (UPDATED FOR waE2E)
+// 👇 HELPER FUNCTIONS (FIXED SPELLING ERROR)
 // ---------------------------------------------------------
 
 func sendNativeFlow(client *whatsmeow.Client, jid types.JID, title string, body string, btnName string, params interface{}) {
@@ -100,11 +100,12 @@ func sendNativeFlow(client *whatsmeow.Client, jid types.JID, title string, body 
 	buttons := []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
 		{
 			Name:             proto.String(btnName),
-			ButtonParamsJson: proto.String(string(jsonBytes)), // Note: waE2E uses Json (not JSON)
+			// 🛑 FIX IS HERE: ButtonParamsJson -> ButtonParamsJSON
+			ButtonParamsJSON: proto.String(string(jsonBytes)), 
 		},
 	}
 
-	// 2. میسج اسٹرکچر (Using waE2E & FutureProofMessage as per research)
+	// 2. میسج اسٹرکچر (Using waE2E & FutureProofMessage)
 	msg := &waE2E.Message{
 		ViewOnceMessage: &waE2E.FutureProofMessage{
 			Message: &waE2E.Message{
