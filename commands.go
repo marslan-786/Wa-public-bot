@@ -304,7 +304,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			bodyLower := strings.ToLower(bodyClean)
 			
 			quickCheck := []string{
-				"http", "www.", "wa.me", "t.me", "bit.ly", "goo.gl", 
+				"http", "https", "www.", "wa.me", "t.me", "bit.ly", "goo.gl", 
 				"tinyurl", "youtu.be", "chat.whatsapp.com", 
 				".com", ".net", ".org", ".info", ".biz", ".xyz", 
 				".top", ".site", ".pro", ".club", ".io", ".ai", 
@@ -512,6 +512,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "mode":
 			react(client, v.Info.Chat, v.Info.ID, "🔄")
 			handleMode(client, v, words[1:])
+			
+	    case "btn":
+			react(client, v.Info.Chat, v.Info.ID, "🤔")
+			HandleButtonCommands(client, v)
 		
 		case "antilink":
 			react(client, v.Info.Chat, v.Info.ID, "🛡️")
