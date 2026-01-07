@@ -7,8 +7,7 @@ import (
 	"strings"
 
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waE2E" // ✅ New Library Path
-	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
@@ -24,90 +23,77 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 		return
 	}
 
-	chatJID := evt.Info.Chat
 	cmd := strings.TrimSpace(strings.ToLower(text))
 
 	switch cmd {
 	case ".btn 1":
 		// 🔥 COPY CODE BUTTON
-		fmt.Println("Testing Copy Button...")
+		fmt.Println("Sending Copy Button...")
 		params := map[string]string{
-			"display_text": "👉 Copy Code",
+			"display_text": "👉 Copy OTP",
 			"copy_code":    "IMPOSSIBLE-2026",
 		}
-		sendNativeFlow(client, chatJID, "🔥 *Copy Button Test*", "نیچے بٹن دبا کر کوڈ کاپی کریں۔", "cta_copy", params)
+		// نوٹ: ہم 'evt' پاس کر رہے ہیں تاکہ اس کا رپلائی دیا جا سکے
+		sendNativeFlow(client, evt, "🔥 *Copy Code*", "نیچے بٹن دبا کر کوڈ کاپی کریں۔", "cta_copy", params)
 
 	case ".btn 2":
 		// 🌍 URL BUTTON
-		fmt.Println("Testing URL Button...")
+		fmt.Println("Sending URL Button...")
 		params := map[string]string{
 			"display_text": "🌐 Open Google",
 			"url":          "https://google.com",
 			"merchant_url": "https://google.com",
 		}
-		sendNativeFlow(client, chatJID, "🌍 *URL Button Test*", "ہماری ویب سائٹ وزٹ کریں۔", "cta_url", params)
+		sendNativeFlow(client, evt, "🌍 *URL Access*", "ہماری ویب سائٹ وزٹ کریں۔", "cta_url", params)
 
 	case ".btn 3":
-		// 📜 LIST MENU (Single Select)
-		fmt.Println("Testing List Menu...")
-		
-		// List JSON Structure
+		// 📜 LIST MENU
+		fmt.Println("Sending List Menu...")
 		listParams := map[string]interface{}{
-			"title": "✨ Select Option",
+			"title": "✨ Click Me",
 			"sections": []map[string]interface{}{
 				{
 					"title": "Main Features",
 					"rows": []map[string]string{
-						{"header": "🤖", "title": "AI Chat", "description": "Chat with Gemini", "id": "row_ai"},
-						{"header": "📥", "title": "Downloader", "description": "Download Videos", "id": "row_dl"},
-					},
-				},
-				{
-					"title": "Settings",
-					"rows": []map[string]string{
-						{"header": "⚙️", "title": "Panel", "description": "Admin Controls", "id": "row_panel"},
+						{"header": "🤖", "title": "AI Chat", "description": "Ask Gemini", "id": "row_ai"},
+						{"header": "📥", "title": "Downloader", "description": "Save Videos", "id": "row_dl"},
 					},
 				},
 			},
 		}
-		sendNativeFlow(client, chatJID, "📂 *List Menu Test*", "نیچے مینیو کھولیں۔", "single_select", listParams)
+		sendNativeFlow(client, evt, "📂 *Main Menu*", "نیچے مینیو کھولیں۔", "single_select", listParams)
 
 	default:
-		menu := "🛠️ *BUTTON TESTER MENU (waE2E)*\n\n" +
-			"➤ `.btn 1` : Copy Code Button\n" +
-			"➤ `.btn 2` : Open URL Button\n" +
-			"➤ `.btn 3` : List Menu\n"
-		
-		client.SendMessage(context.Background(), chatJID, &waE2E.Message{
-			Conversation: proto.String(menu),
+		// عام مینیو (بغیر بٹن کے، صرف ٹیکسٹ)
+		client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
+			Conversation: proto.String("🛠️ *Try commands:* .btn 1, .btn 2, .btn 3"),
 		})
 	}
 }
 
 // ---------------------------------------------------------
-// 👇 HELPER FUNCTIONS (FIXED SPELLING ERROR)
+// 👇 HELPER FUNCTION (THE FORCE RENDERER)
 // ---------------------------------------------------------
 
-func sendNativeFlow(client *whatsmeow.Client, jid types.JID, title string, body string, btnName string, params interface{}) {
-	// JSON Marshal (Safe way)
+func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title string, body string, btnName string, params interface{}) {
+	// 1. JSON Marshal
 	jsonBytes, err := json.Marshal(params)
 	if err != nil {
 		fmt.Println("JSON Error:", err)
 		return
 	}
 
-	// 1. بٹن تیار کریں
+	// 2. Button Structure
 	buttons := []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
 		{
 			Name:             proto.String(btnName),
-			// 🛑 FIX IS HERE: ButtonParamsJson -> ButtonParamsJSON
-			ButtonParamsJSON: proto.String(string(jsonBytes)), 
+			ButtonParamsJSON: proto.String(string(jsonBytes)),
 		},
 	}
 
-	// 2. میسج اسٹرکچر (Using waE2E & FutureProofMessage)
+	// 3. Message Structure (With ContextInfo & FutureProof)
 	msg := &waE2E.Message{
-		ViewOnceMessage: &waE2E.FutureProofMessage{
+		ViewOnceMessage: &waE2E.FutureProofMessage{ // ✅ یہ وہ Wrapper ہے جو میسج کو نظر آنے کے قابل بناتا ہے
 			Message: &waE2E.Message{
 				InteractiveMessage: &waE2E.InteractiveMessage{
 					Header: &waE2E.InteractiveMessage_Header{
@@ -121,21 +107,31 @@ func sendNativeFlow(client *whatsmeow.Client, jid types.JID, title string, body 
 						Text: proto.String("🤖 Impossible Bot Beta"),
 					},
 					
-					// ✅ Native Flow Wrapper for waE2E
+					// ✅ Native Flow Wrapper
 					InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
 						NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
 							Buttons:        buttons,
-							MessageVersion: proto.Int32(3), // Version 3 is critical
+							MessageVersion: proto.Int32(3),
 						},
+					},
+
+					// 🔥 Context Info (Quoted Message)
+					// یہ سب سے اہم ہے۔ یہ واٹس ایپ کو مجبور کرتا ہے کہ میسج رینڈر کرے۔
+					ContextInfo: &waE2E.ContextInfo{
+						StanzaId:      proto.String(evt.Info.ID),
+						Participant:   proto.String(evt.Info.Sender.String()),
+						QuotedMessage: evt.Message,
 					},
 				},
 			},
 		},
 	}
 
-	// 3. سینڈ کریں
-	_, err = client.SendMessage(context.Background(), jid, msg)
+	// 4. Send Message
+	_, err = client.SendMessage(context.Background(), evt.Info.Chat, msg)
 	if err != nil {
 		fmt.Println("❌ Error sending buttons:", err)
+	} else {
+		fmt.Println("✅ Buttons sent successfully!")
 	}
 }
