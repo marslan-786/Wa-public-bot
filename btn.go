@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -25,130 +24,115 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 
 	cmd := strings.TrimSpace(strings.ToLower(text))
 
-	// لمبی تحریر (Professional Body Text)
-	longBody := "السلام علیکم! 👋\n\n" +
-		"یہ آپ کا *ویریفکیشن کوڈ* ہے۔ برائے مہربانی اسے کسی کے ساتھ شیئر نہ کریں۔\n\n" +
-		"📌 *ہدایات:* \n" +
-		"1. نیچے دیئے گئے بٹن پر کلک کریں۔\n" +
-		"2. کوڈ خود بخود کاپی ہو جائے گا۔\n" +
-		"3. ایپ میں جا کر پیسٹ کریں۔\n\n" +
-		"⚠️ *نوٹ:* یہ کوڈ اگلے 10 منٹ تک کارآمد ہے۔"
+	// 🛠️ ہیڈر اور باڈی ٹیکسٹ (جو ہر میسج میں جائے گا)
+	headerText := "🤖 Impossible Bot"
+	bodyText := "براہ کرم نیچے دیئے گئے بٹن پر کلک کریں۔"
+	footerText := "Powered by Whatsmeow"
 
 	switch cmd {
 	case ".btn 1":
-		fmt.Println("🚀 sending Copy Button with Long Text...")
-		params := map[string]string{
-			"display_text": "کاپی کوڈ (Copy Code)",
-			"copy_code":    "IMPOSSIBLE-2026",
-			"id":           "btn_copy_123",
-		}
-		sendNativeFlow(client, evt, "🔐 *IMPOSSIBLE SECURITY*", longBody, "cta_copy", params)
+		// 🔥 COPY CODE BUTTON (cta_copy)
+		// JSON Payload must have 'display_text' and 'copy_code'
+		fmt.Println("🚀 Sending Copy Button...")
+		jsonPayload := `{"display_text":"👉 Copy Code","copy_code":"IMPOSSIBLE-2026","id":"btn_copy_123"}`
+		
+		sendNativeFlow(client, evt, headerText, bodyText, footerText, "cta_copy", jsonPayload)
 
 	case ".btn 2":
-		fmt.Println("🚀 sending URL Button with Long Text...")
-		params := map[string]string{
-			"display_text": "ویب سائٹ کھولیں",
-			"url":          "https://google.com",
-			"merchant_url": "https://google.com",
-			"id":           "btn_url_456",
-		}
-		urlBody := "🌍 *دنیا کو دریافت کریں*\n\n" +
-			"ہماری نئی ویب سائٹ لانچ ہو چکی ہے! بہترین تجربے کے لیے ابھی وزٹ کریں۔\n" +
-			"نیچے دیئے گئے بٹن پر کلک کر کے براہ راست گوگل کھولیں۔"
+		// 🌍 URL BUTTON (cta_url)
+		// Must include 'url' and 'merchant_url' for compatibility
+		fmt.Println("🚀 Sending URL Button...")
+		jsonPayload := `{"display_text":"🌐 Open Google","url":"https://google.com","merchant_url":"https://google.com","id":"btn_url_456"}`
 		
-		sendNativeFlow(client, evt, "🌐 *OFFICIAL LINK*", urlBody, "cta_url", params)
+		sendNativeFlow(client, evt, headerText, bodyText, footerText, "cta_url", jsonPayload)
 
 	case ".btn 3":
-		fmt.Println("🚀 sending List Menu...")
-		listParams := map[string]interface{}{
-			"title": "✨ مینو کھولیں",
-			"sections": []map[string]interface{}{
+		// 📜 LIST MENU (single_select)
+		// Strictly formatted JSON structure for List Messages
+		fmt.Println("🚀 Sending List Menu...")
+		jsonPayload := `{
+			"title": "✨ Select Option",
+			"sections": [
 				{
 					"title": "Main Features",
-					"rows": []map[string]string{
-						{"header": "🤖", "title": "AI Chat", "description": "Ask Gemini Anything", "id": "row_ai"},
-						{"header": "📥", "title": "Downloader", "description": "Save TikTok/Insta", "id": "row_dl"},
-					},
+					"rows": [
+						{"header": "🤖", "title": "AI Chat", "description": "Chat with Gemini", "id": "row_ai"},
+						{"header": "📥", "title": "Downloader", "description": "Save Videos", "id": "row_dl"}
+					]
 				},
 				{
-					"title": "Admin Tools",
-					"rows": []map[string]string{
-						{"header": "⚙️", "title": "Control Panel", "description": "Manage Bot Settings", "id": "row_panel"},
-					},
-				},
-			},
-		}
-		listBody := "📂 *مین مینو (Main Menu)*\n\n" +
-			"براہ کرم اپنی پسندیدہ سروس کا انتخاب کریں۔\n" +
-			"ہمارا سسٹم 24/7 آن لائن ہے۔"
-			
-		sendNativeFlow(client, evt, "🤖 *IMPOSSIBLE BOT*", listBody, "single_select", listParams)
+					"title": "Settings",
+					"rows": [
+						{"header": "⚙️", "title": "Admin Panel", "description": "Manage Bot", "id": "row_panel"}
+					]
+				}
+			]
+		}`
+		
+		sendNativeFlow(client, evt, headerText, bodyText, footerText, "single_select", jsonPayload)
 	}
 }
 
 // ---------------------------------------------------------
-// 👇 HELPER FUNCTION (HEAVY MESSAGE STRUCTURE)
+// 👇 HELPER FUNCTION (DEEP SEARCH COMPLIANT WRAPPER)
 // ---------------------------------------------------------
 
-func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title string, body string, btnName string, params interface{}) {
+func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, header, body, footer, btnName, jsonParams string) {
 	
-	jsonBytes, err := json.Marshal(params)
-	if err != nil {
-		fmt.Printf("❌ JSON Error: %v\n", err)
-		return
-	}
-
+	// 1. Button Structure
 	buttons := []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
 		{
 			Name:             proto.String(btnName),
-			ButtonParamsJSON: proto.String(string(jsonBytes)),
+			ButtonParamsJSON: proto.String(jsonParams),
 		},
 	}
 
+	// 2. Message Structure (The Deep Search Approved Format)
+	// ViewOnceMessage -> FutureProofMessage -> InteractiveMessage
 	msg := &waE2E.Message{
 		ViewOnceMessage: &waE2E.FutureProofMessage{
 			Message: &waE2E.Message{
 				InteractiveMessage: &waE2E.InteractiveMessage{
-					// 🔥 HEADER (BOLD TITLE)
 					Header: &waE2E.InteractiveMessage_Header{
-						Title:              proto.String(title),
-						Subtitle:           proto.String("Authorized Service"), // Extra Validation
+						Title:              proto.String(header),
+						Subtitle:           proto.String("Authorized Action"), // Some clients need this
 						HasMediaAttachment: proto.Bool(false),
 					},
-					// 🔥 BODY (LONG TEXT)
 					Body: &waE2E.InteractiveMessage_Body{
 						Text: proto.String(body),
 					},
-					// 🔥 FOOTER (LIGHT TEXT)
 					Footer: &waE2E.InteractiveMessage_Footer{
-						Text: proto.String("Powered by Impossible Bot ⚡"),
+						Text: proto.String(footer),
 					},
 					
+					// ✅ Native Flow Wrapper
 					InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
 						NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
 							Buttons:           buttons,
-							MessageParamsJSON: proto.String(""), // Empty string is key!
-							MessageVersion:    proto.Int32(1),
+							// 🛑 CRITICAL: This MUST be a valid JSON string (even if empty object)
+							MessageParamsJSON: proto.String("{\"name\":\"galaxy_message\"}"), 
+							MessageVersion:    proto.Int32(3), // Version 3 is standard for Native Flow
 						},
 					},
 
-					// 🔥 CONTEXT INFO (The Reply Trick)
+					// 🔥 Reply Context (Essential for Visibility)
 					ContextInfo: &waE2E.ContextInfo{
 						StanzaID:      proto.String(evt.Info.ID),
 						Participant:   proto.String(evt.Info.Sender.String()),
 						QuotedMessage: evt.Message,
-						IsForwarded:   proto.Bool(true),
 					},
 				},
 			},
 		},
 	}
 
-	// Send & Log
+	// 3. Send & Log
+	fmt.Printf("📦 Sending Native Flow (%s)...\n", btnName)
 	resp, err := client.SendMessage(context.Background(), evt.Info.Chat, msg)
+	
 	if err != nil {
 		fmt.Printf("❌ Error sending: %v\n", err)
 	} else {
-		fmt.Printf("✅ Sent with Long Text! ID: %s\n", resp.ID)
+		fmt.Printf("✅ Sent! ID: %s | TS: %v\n", resp.ID, resp.Timestamp)
 	}
 }
