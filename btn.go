@@ -25,80 +25,59 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 
 	cmd := strings.TrimSpace(strings.ToLower(text))
 
-	// 🛠️ SCENARIO 1: COPY CODE
-	if cmd == ".btn 1" {
-		fmt.Println("Sending Copy Button...")
-		
-		// ✅ Correct Map Syntax (Key: Value)
+	switch cmd {
+	case ".btn 1":
+		fmt.Println("🚀 Attempting to send Copy Button...")
 		params := map[string]string{
-			"display_text": "👉 Copy OTP",
+			"display_text": "👉 Copy Code",
 			"copy_code":    "IMPOSSIBLE-2026",
 			"id":           "btn_copy_123",
 		}
-		
-		sendNativeFlow(client, evt, "🔥 *Copy Code*", "نیچے بٹن دبا کر کوڈ کاپی کریں۔", "cta_copy", params)
-	}
+		sendNativeFlow(client, evt, "🔥 *Copy Button Debug*", "نیچے بٹن دبا کر کوڈ کاپی کریں۔", "cta_copy", params)
 
-	// 🛠️ SCENARIO 2: OPEN URL
-	if cmd == ".btn 2" {
-		fmt.Println("Sending URL Button...")
-		
+	case ".btn 2":
+		fmt.Println("🚀 Attempting to send URL Button...")
 		params := map[string]string{
 			"display_text": "🌐 Open Google",
 			"url":          "https://google.com",
 			"merchant_url": "https://google.com",
 			"id":           "btn_url_456",
 		}
-		
-		sendNativeFlow(client, evt, "🌍 *URL Access*", "ہماری ویب سائٹ وزٹ کریں۔", "cta_url", params)
-	}
+		sendNativeFlow(client, evt, "🌍 *URL Button Debug*", "ہماری ویب سائٹ وزٹ کریں۔", "cta_url", params)
 
-	// 🛠️ SCENARIO 3: LIST MENU
-	if cmd == ".btn 3" {
-		fmt.Println("Sending List Menu...")
-		
-		// ✅ Complex Nested Map Syntax Fixed
+	case ".btn 3":
+		fmt.Println("🚀 Attempting to send List Menu...")
 		listParams := map[string]interface{}{
 			"title": "✨ Select Option",
 			"sections": []map[string]interface{}{
 				{
 					"title": "Main Features",
 					"rows": []map[string]string{
-						{
-							"header":      "🤖",
-							"title":       "AI Chat",
-							"description": "Chat with Gemini",
-							"id":          "row_ai",
-						},
-						{
-							"header":      "📥",
-							"title":       "Downloader",
-							"description": "Save Videos",
-							"id":          "row_dl",
-						},
+						{"header": "🤖", "title": "AI Chat", "description": "Chat with Gemini", "id": "row_ai"},
+						{"header": "📥", "title": "Downloader", "description": "Save Videos", "id": "row_dl"},
 					},
 				},
 			},
 		}
-		sendNativeFlow(client, evt, "📂 *Main Menu*", "نیچے مینیو کھولیں۔", "single_select", listParams)
+		sendNativeFlow(client, evt, "📂 *List Menu Debug*", "نیچے مینیو کھولیں۔", "single_select", listParams)
 	}
 }
 
 // ---------------------------------------------------------
-// 👇 HELPER FUNCTION (DEEP SEARCH COMPLIANT)
+// 👇 HELPER FUNCTION (WITH FULL CONSOLE LOGGING)
 // ---------------------------------------------------------
 
 func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title string, body string, btnName string, params interface{}) {
 	
-	// 1. Serialize Params to JSON String
+	// 1. JSON Debugging
 	jsonBytes, err := json.Marshal(params)
 	if err != nil {
 		fmt.Printf("❌ JSON Error: %v\n", err)
 		return
 	}
+	fmt.Printf("📦 Generated JSON: %s\n", string(jsonBytes)) // پرنٹ کریں کہ JSON کیسا بنا ہے
 
-	// 2. Construct Buttons Slice
-	// 🚨 IMPORTANT: Using Named Fields to avoid "implicit assignment" errors
+	// 2. Button Structure
 	buttons := []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
 		{
 			Name:             proto.String(btnName),
@@ -106,51 +85,51 @@ func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title string,
 		},
 	}
 
-	// 3. Construct Native Flow Message
-	nativeFlowMsg := &waE2E.InteractiveMessage_NativeFlowMessage{
-		Buttons:           buttons,
-		MessageParamsJSON: proto.String("{}"), // Mandatory empty JSON for some clients
-		MessageVersion:    proto.Int32(3),     // Version 3 is critical for 2025/26
-	}
-
-	// 4. Construct Interactive Message
-	interactiveMsg := &waE2E.InteractiveMessage{
-		Header: &waE2E.InteractiveMessage_Header{
-			Title:              proto.String(title),
-			HasMediaAttachment: proto.Bool(false),
-		},
-		Body: &waE2E.InteractiveMessage_Body{
-			Text: proto.String(body),
-		},
-		Footer: &waE2E.InteractiveMessage_Footer{
-			Text: proto.String("🤖 Impossible Bot Beta"),
-		},
-		// Wrapper for OneOf Field
-		InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
-			NativeFlowMessage: nativeFlowMsg,
-		},
-		// 🔥 Context Info (Forcing Render via Reply)
-		ContextInfo: &waE2E.ContextInfo{
-			StanzaID:      proto.String(evt.Info.ID),
-			Participant:   proto.String(evt.Info.Sender.String()),
-			QuotedMessage: evt.Message,
-		},
-	}
-
-	// 5. Wrap in FutureProofMessage (The ViewOnce Hack)
-	finalMsg := &waE2E.Message{
+	// 3. Message Structure (Native Flow + ContextInfo)
+	msg := &waE2E.Message{
 		ViewOnceMessage: &waE2E.FutureProofMessage{
 			Message: &waE2E.Message{
-				InteractiveMessage: interactiveMsg,
+				InteractiveMessage: &waE2E.InteractiveMessage{
+					Header: &waE2E.InteractiveMessage_Header{
+						Title:              proto.String(title),
+						HasMediaAttachment: proto.Bool(false),
+					},
+					Body: &waE2E.InteractiveMessage_Body{
+						Text: proto.String(body),
+					},
+					Footer: &waE2E.InteractiveMessage_Footer{
+						Text: proto.String("🤖 Impossible Bot Debugger"),
+					},
+					
+					InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+						NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+							Buttons:           buttons,
+							MessageParamsJson: proto.String("{}"), // بعض اوقات خالی JSON ضروری ہوتا ہے
+							MessageVersion:    proto.Int32(3),
+						},
+					},
+
+					ContextInfo: &waE2E.ContextInfo{
+						StanzaID:      proto.String(evt.Info.ID),
+						Participant:   proto.String(evt.Info.Sender.String()),
+						QuotedMessage: evt.Message,
+					},
+				},
 			},
 		},
 	}
 
-	// 6. Send
-	_, err = client.SendMessage(context.Background(), evt.Info.Chat, finalMsg)
+	// 4. Send & Print Raw Response
+	fmt.Println("📡 Sending message to WhatsApp Server...")
+	resp, err := client.SendMessage(context.Background(), evt.Info.Chat, msg)
+	
 	if err != nil {
-		fmt.Printf("❌ Error sending buttons: %v\n", err)
+		fmt.Printf("❌ CRITICAL ERROR: %v\n", err)
 	} else {
-		fmt.Println("✅ Button Sent Successfully!")
+		// 🔥🔥🔥 HERE IS THE RAW CONSOLE PRINT 🔥🔥🔥
+		fmt.Printf("✅ SUCCESS! Server Response:\n")
+		fmt.Printf("🆔 ID: %s\n", resp.ID)
+		fmt.Printf("🕒 Timestamp: %v\n", resp.Timestamp)
+		fmt.Printf("💾 Full Dump: %+v\n", resp) // یہ لائن سب کچھ کھول کر دکھا دے گی
 	}
 }
