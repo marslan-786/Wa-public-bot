@@ -98,7 +98,7 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 }
 
 // ---------------------------------------------------------
-// 👇 HELPER FUNCTIONS (CRITICAL FIXES APPLIED)
+// 👇 HELPER FUNCTIONS (CRITICAL FIX FOR NativeFlowMessage)
 // ---------------------------------------------------------
 
 type NativeButton struct {
@@ -116,9 +116,9 @@ func sendNativeFlow(client *whatsmeow.Client, jid types.JID, title string, body 
 		})
 	}
 
-	// 2. میسج اسٹرکچر (The Real Fix)
-	// NativeFlowMessage کو براہ راست InteractiveMessage میں نہیں ڈالا جا سکتا۔
-	// اسے InteractiveMessage_NativeFlowMessage_ (ایک انڈر سکور کے ساتھ) میں لپیٹنا پڑتا ہے۔
+	// 2. میسج اسٹرکچر (The Research-Verified Fix)
+	// NativeFlowMessage کو "Wrapper Struct" میں ڈالنا ضروری ہے۔
+	// Wrapper کا نام ہمیشہ `_` (underscore) پر ختم ہوتا ہے۔
 	
 	msg := &waProto.Message{
 		ViewOnceMessage: &waProto.ViewOnceMessage{
@@ -135,13 +135,13 @@ func sendNativeFlow(client *whatsmeow.Client, jid types.JID, title string, body 
 						Text: proto.String("🤖 Impossible Bot Beta"),
 					},
 					
-					// 🛑 🛑 🛑 MAIN FIX IS HERE 🛑 🛑 🛑
+					// 🛑 🛑 🛑 THE MAIN FIX 🛑 🛑 🛑
 					// ہم InteractiveMessage فیلڈ (جو کہ ایک انٹرفیس ہے) کو استعمال کر رہے ہیں
 					// اور اس کے اندر "InteractiveMessage_NativeFlowMessage_" والا سٹرکٹ پاس کر رہے ہیں۔
 					InteractiveMessage: &waProto.InteractiveMessage_NativeFlowMessage_{
 						NativeFlowMessage: &waProto.InteractiveMessage_NativeFlowMessage{
 							Buttons:        protoButtons,
-							MessageVersion: proto.Int32(1),
+							MessageVersion: proto.Int32(3), // Version 3 is standard for 2025
 						},
 					},
 				},
