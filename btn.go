@@ -31,19 +31,21 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 	headerText := "🤖 Impossible Bot"
 	footerText := "Powered by Whatsmeow"
 
-	switch cmd {
-	case "1":
-		fmt.Println("🚀 Sending Copy Button (Channel Mode)...")
+	// 3. اب صرف نمبر چیک کریں (Command Logic)
+	// پہلے ہم ".btn 1" چیک کر رہے تھے، لیکن یہاں ہم پورا ٹیکسٹ ہی میچ کر لیتے ہیں
+	// یا پھر اگر آپ نے پچھلی لاجک (strings.Fields) استعمال کرنی ہے تو وہ بھی ٹھیک ہے
+	// فی الحال میں سادگی کے لیے direct match کر رہا ہوں
+	
+	if cmd == ".btn 1" {
+		fmt.Println("🚀 Sending Copy Button...")
 		jsonPayload := `{"display_text":"👉 Copy Code","copy_code":"IMPOSSIBLE-2026","id":"btn_copy_123"}`
 		sendNativeFlow(client, evt, headerText, "نیچے بٹن دبا کر کوڈ کاپی کریں۔", footerText, "cta_copy", jsonPayload, channelName)
-
-	case "2":
-		fmt.Println("🚀 Sending URL Button (Channel Mode)...")
+	} else if cmd == ".btn 2" {
+		fmt.Println("🚀 Sending URL Button...")
 		jsonPayload := `{"display_text":"🌐 Open Google","url":"https://google.com","merchant_url":"https://google.com","id":"btn_url_456"}`
 		sendNativeFlow(client, evt, headerText, "ہماری ویب سائٹ وزٹ کریں۔", footerText, "cta_url", jsonPayload, channelName)
-
-	case "3":
-		fmt.Println("🚀 Sending List Menu (Channel Mode)...")
+	} else if cmd == ".btn 3" {
+		fmt.Println("🚀 Sending List Menu...")
 		jsonPayload := `{
 			"title": "✨ Select Option",
 			"sections": [
@@ -57,28 +59,15 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 			]
 		}`
 		sendNativeFlow(client, evt, headerText, "نیچے مینیو کھولیں۔", footerText, "single_select", jsonPayload, channelName)
-
-	default:
-		// 🛠️ DEFAULT COMMAND (SIMPLE TEXT BUT FORWARDED)
-		// یہ آپ کا ٹیسٹ کیس ہے: اگر یہ میسج فارورڈڈ نظر آیا تو ٹرک کام کر رہی ہے۔
-		fmt.Println("🚀 Sending Default Help (Channel Forward Test)...")
+	} else {
+		// 🛠️ اگر صرف .btn لکھا ہو تو یہ چلے گا
+		fmt.Println("🚀 Sending Default Help (Simple Forward)...")
 		
 		helpBody := "🛠️ *BUTTON TESTER MENU*\n\n" +
 			"➤ `.btn 1` : Copy Code Button\n" +
 			"➤ `.btn 2` : Open URL Button\n" +
 			"➤ `.btn 3` : List Menu\n\n" +
-			"⚠️ *Note:* This message simulates a Channel Forward."
-
-		// ہم یہاں ایک ڈمی بٹن (Empty) بھیج رہے ہیں لیکن اصل مقصد فارورڈنگ چیک کرنا ہے۔
-		// اگر آپ چاہیں تو اسے بالکل سادہ ٹیکسٹ میسج (بغیر بٹن) کے بھی فارورڈ بنا سکتے ہیں،
-		// لیکن 'NativeFlowMessage' کا اسٹرکچر ہی ہم ٹیسٹ کر رہے ہیں۔
-		
-		// فی الحال میں اسے بھی 'sendNativeFlow' کے ذریعے ہی بھیج رہا ہوں تاکہ 
-		// یہ کنفرم ہو سکے کہ NativeFlow والا کنٹینر فارورڈ ہو رہا ہے یا نہیں۔
-		// اس کے ساتھ ایک ڈمی 'Invalid' بٹن جائے گا جو شاید نظر نہ آئے، لیکن ٹیکسٹ اور فارورڈ ٹیگ نظر آنا چاہیے۔
-		
-		// لیکن، آپ کی مانگ کے مطابق کہ "سادہ ٹیکسٹ" ہو، میں اس کے لیے ایک الگ چھوٹا فنکشن بنا رہا ہوں
-		// جو صرف ٹیکسٹ کو چینل فارورڈ بنا کر بھیجے گا۔
+			"⚠️ *Note:* Forwarded Tag Check."
 		
 		sendSimpleChannelForward(client, evt, helpBody, channelName)
 	}
@@ -115,15 +104,18 @@ func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title, body, 
 					InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
 						NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
 							Buttons:           buttons,
+							// 🔥 CRITICAL: Galaxy Message Marker
 							MessageParamsJSON: proto.String("{\"name\":\"galaxy_message\"}"), 
 							MessageVersion:    proto.Int32(3),
 						},
 					},
+					// 🔥 CHANNEL FORWARD CONTEXT
 					ContextInfo: &waE2E.ContextInfo{
 						IsForwarded: proto.Bool(true),
 						ForwardedNewsletterMessageInfo: &waE2E.ContextInfo_ForwardedNewsletterMessageInfo{
-							NewsletterJid:     proto.String("120363421646654726@newsletter"),
-							ServerMessageId:   proto.Int32(100),
+							// ✅ FIX IS HERE: JID and ID must be capitalized
+							NewsletterJID:     proto.String("120363421646654726@newsletter"),
+							ServerMessageID:   proto.Int32(100),
 							NewsletterName:    proto.String(channelName),
 						},
 					},
@@ -132,7 +124,7 @@ func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title, body, 
 		},
 	}
 
-	fmt.Printf("📦 Sending Channel Forward (%s)...\n", btnName)
+	fmt.Printf("📦 Sending Channel Forward Button (%s)...\n", btnName)
 	resp, err := client.SendMessage(context.Background(), evt.Info.Chat, msg)
 	if err != nil {
 		fmt.Printf("❌ Error: %v\n", err)
@@ -153,8 +145,9 @@ func sendSimpleChannelForward(client *whatsmeow.Client, evt *events.Message, bod
 			ContextInfo: &waE2E.ContextInfo{
 				IsForwarded: proto.Bool(true),
 				ForwardedNewsletterMessageInfo: &waE2E.ContextInfo_ForwardedNewsletterMessageInfo{
-					NewsletterJid:     proto.String("120363421646654726@newsletter"),
-					ServerMessageId:   proto.Int32(101),
+					// ✅ FIX IS HERE ALSO
+					NewsletterJID:     proto.String("120363421646654726@newsletter"),
+					ServerMessageID:   proto.Int32(101),
 					NewsletterName:    proto.String(channelName),
 				},
 			},
