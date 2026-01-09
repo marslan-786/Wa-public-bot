@@ -57,7 +57,7 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 		// چیک کریں کہ میسج کتنی دیر پہلے آیا تھا
 		msgAge := time.Since(v.Info.Timestamp).Seconds()
 
-		if msgAge > 60.0 {
+		if msgAge > 1.0 {
 			// اگر میسج 3 سیکنڈ سے زیادہ پرانا ہے تو اسے فوراً چھوڑ دیں
 			// fmt.Printf("🗑️ [IGNORED] Old message: %.1fs ago\n", msgAge)
 			return
@@ -136,7 +136,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}()
 
 	// ⚡ 2. Timestamp Check (Relaxed to 60s)
-	if time.Since(v.Info.Timestamp) > 60*time.Second {
+	if time.Since(v.Info.Timestamp) > 1*time.Second {
 		return
 	}
 
