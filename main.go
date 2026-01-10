@@ -334,11 +334,11 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 
 	if contextInfo != nil && contextInfo.QuotedMessage != nil {
 		// Fix Pointer Dereference for Participant
+		// Fix Pointer Dereference
 		if contextInfo.Participant != nil {
 			quotedSender = *contextInfo.Participant
-		} else {
-			// Fix StanzaID capitalization (Latest proto uses StanzaID)
-			quotedSender = contextInfo.StanzaID 
+		} else if contextInfo.StanzaID != nil { // ✅ Check if not nil
+			quotedSender = *contextInfo.StanzaID // ✅ Add * to get string value
 		}
 		
 		if contextInfo.QuotedMessage.Conversation != nil {
