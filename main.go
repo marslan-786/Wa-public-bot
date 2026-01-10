@@ -257,6 +257,10 @@ func main() {
 	fmt.Println("👋 Goodbye!")
 }
 
+func serveHTML(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "web/index.html")
+}
+
 // 🐱 CATBOX UPLOAD FUNCTION
 func UploadToCatbox(data []byte, filename string) (string, error) {
 	body := new(bytes.Buffer)
