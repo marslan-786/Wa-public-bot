@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"encoding/base64"
     "go.mau.fi/whatsmeow/types"
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
@@ -874,23 +875,28 @@ func UploadToCatbox(data []byte, filename string) (string, error) {
 // 📦 STRUCT UPDATE (اسے main.go یا commands.go میں جہاں struct ہے وہاں replace کریں)
 
 // 🔥 HELPER: Save Message to Mongo (Updated with 10MB Logic & Tabs)
+// 🔥 HELPER: Save Message to Mongo (FIXED: Context & Imports)
 func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waProto.Message, isFromMe bool, ts uint64) {
 	if chatHistoryCollection == nil { return }
 
 	var msgType, content, senderName string
 	timestamp := time.Unix(int64(ts), 0)
 	
-	// 🏷️ Identify Chat Type (Group/Channel/Private)
+	// 🏷️ Identify Chat Type
 	isGroup := strings.Contains(chatID, "@g.us")
 	isChannel := strings.Contains(chatID, "@newsletter")
 
-	// 🕵️ NAME LOOKUP
+	// 🕵️ NAME LOOKUP (FIXED CONTEXT ERROR)
 	jid, _ := types.ParseJID(chatID)
-	if contact, err := client.Store.Contacts.GetContact(jid); err == nil && contact.Found {
+    // ✅ FIX: Added context.Background() inside GetContact
+	if contact, err := client.Store.Contacts.GetContact(context.Background(), jid); err == nil && contact.Found {
 		senderName = contact.FullName
 		if senderName == "" { senderName = contact.PushName }
-	} else if contact, err := client.Store.Contacts.GetContact(jid); err == nil {
-		senderName = contact.PushName
+	} else {
+        // ✅ FIX: Added context.Background() here too
+        if contact, err := client.Store.Contacts.GetContact(context.Background(), jid); err == nil {
+		    senderName = contact.PushName
+        }
 	}
 	if senderName == "" { senderName = strings.Split(chatID, "@")[0] }
 
@@ -899,7 +905,7 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		msgType = "text"
 		content = txt
 	} else if msg.ImageMessage != nil {
-		// --- IMAGE (Always Mongo Base64 as per request) ---
+		// --- IMAGE ---
 		msgType = "image"
 		data, err := client.Download(context.Background(), msg.ImageMessage)
 		if err == nil {
@@ -907,7 +913,7 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 			content = "data:image/jpeg;base64," + encoded
 		}
 	} else if msg.VideoMessage != nil {
-		// --- VIDEO (Always Catbox as per request) ---
+		// --- VIDEO ---
 		msgType = "video"
 		data, err := client.Download(context.Background(), msg.VideoMessage)
 		if err == nil {
@@ -915,19 +921,15 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 			if err == nil { content = url }
 		}
 	} else if msg.AudioMessage != nil {
-		// --- AUDIO (Logic: <10MB Mongo, >10MB Catbox) ---
+		// --- AUDIO ---
 		msgType = "audio"
 		data, err := client.Download(context.Background(), msg.AudioMessage)
 		if err == nil {
-			// ⚡ Check Size: 10MB = 10 * 1024 * 1024 bytes
 			if len(data) > 10*1024*1024 {
-				// Too big -> Upload to Catbox
 				url, err := UploadToCatbox(data, "audio.ogg")
 				if err == nil { content = url }
 			} else {
-				// Small enough -> Save in Mongo (Base64)
 				encoded := base64.StdEncoding.EncodeToString(data)
-				// MIME type audio/ogg or audio/mpeg
 				content = "data:audio/ogg;base64," + encoded
 			}
 		}
@@ -955,8 +957,8 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		Content:    content,
 		IsFromMe:   isFromMe,
 		Timestamp:  timestamp,
-		IsGroup:    isGroup,    // ✅ Saved
-		IsChannel:  isChannel,  // ✅ Saved
+		IsGroup:    isGroup,
+		IsChannel:  isChannel,
 	}
 
 	_, err := chatHistoryCollection.InsertOne(context.Background(), doc)
