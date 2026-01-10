@@ -8,485 +8,572 @@
 
   <style>
     :root{
-      --bg-dark:#0b141a;
-      --bg-panel:#111b21;
+      --bg:#0b141a;
+      --panel:#111b21;
+      --panel2:#0f1a20;
       --primary:#00a884;
-      --bubble-sent:#005c4b;
-      --bubble-rec:#202c33;
-      --text-main:#e9edef;
-      --text-muted:#8696a0;
-      --border:#222d34;
-      --card:#0f1a20;
+      --primary2:#1bd7b4;
+      --sent:#005c4b;
+      --recv:#202c33;
+      --text:#e9edef;
+      --muted:#8696a0;
+      --border:#1c262d;
+      --danger:#f15c6d;
       --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --radius: 16px;
     }
-    *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
     body{
-      margin:0; font-family:'Inter',sans-serif; background:var(--bg-dark); color:var(--text-main);
-      height:100vh; overflow:hidden; display:flex; flex-direction:column;
+      margin:0; font-family:Inter,system-ui,Arial; background:var(--bg); color:var(--text);
+      height:100vh; overflow:hidden;
     }
-    ::-webkit-scrollbar{ width:5px; }
-    ::-webkit-scrollbar-thumb{ background:#374045; border-radius:3px; }
+    ::-webkit-scrollbar{width:5px;}
+    ::-webkit-scrollbar-thumb{background:#374045;border-radius:3px;}
 
-    /* ---------------- Splash ---------------- */
+    /* ---------------- SPLASH ---------------- */
     #splash{
-      position:fixed; inset:0; z-index:999;
-      display:flex; align-items:center; justify-content:center;
-      background: radial-gradient(1200px 800px at 50% 20%, rgba(0,168,132,.12), transparent 60%),
-                  radial-gradient(900px 700px at 20% 80%, rgba(0,168,132,.10), transparent 55%),
-                  var(--bg-dark);
+      position:fixed; inset:0; z-index:9999;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      background: radial-gradient(1200px 800px at 50% 20%, rgba(0,168,132,.18), transparent 60%),
+                  linear-gradient(180deg, #071014 0%, #0b141a 100%);
     }
-    .splash-wrap{
-      width:280px; max-width:80vw;
-      display:flex; flex-direction:column; align-items:center; gap:18px;
-      transform: translateY(-10px);
-    }
-    .wa-logo{
-      width:120px; height:120px; position:relative;
-      filter: drop-shadow(0 18px 28px rgba(0,0,0,.45));
-    }
-    .wa-logo .circle{
+    .wa-logo-wrap{
+      position:relative;
       width:120px; height:120px; border-radius:50%;
-      background: linear-gradient(180deg, rgba(0,168,132,.95), rgba(0,168,132,.75));
-      border: 1px solid rgba(255,255,255,.10);
-      display:flex; align-items:center; justify-content:center;
+      display:grid; place-items:center;
+      box-shadow: var(--shadow);
+      background: linear-gradient(180deg, rgba(0,168,132,.25), rgba(0,0,0,.1));
+      border:1px solid rgba(255,255,255,.08);
       overflow:hidden;
     }
-    /* pic.png کو گول کے اندر zoom + crop */
-    .wa-logo .circle img{
-      width:115%; height:115%;
-      object-fit:cover;
-      transform: scale(1.12); /* zoom */
-      filter: saturate(1.05) contrast(1.05);
-      border-radius:50%;
+    .wa-logo-wrap::before{
+      content:"";
+      position:absolute; inset:-40%;
+      background: conic-gradient(from 180deg, rgba(0,168,132,.0), rgba(0,168,132,.35), rgba(0,168,132,.0));
+      animation: spin 2.2s linear infinite;
     }
-    .wa-logo .tail{
-      position:absolute; left:18px; bottom:-12px;
-      width:44px; height:44px;
-      background: linear-gradient(180deg, rgba(0,168,132,.95), rgba(0,168,132,.75));
-      transform: rotate(20deg);
-      border-bottom-left-radius: 46px;
-      border-top-right-radius: 46px;
-      border-top-left-radius: 12px;
-      border-bottom-right-radius: 10px;
-      box-shadow: 0 12px 20px rgba(0,0,0,.25);
-      border: 1px solid rgba(255,255,255,.08);
+    .wa-logo-inner{
+      position:relative; z-index:2;
+      width:106px; height:106px; border-radius:50%;
+      background: rgba(17,27,33,.85);
+      display:grid; place-items:center;
+      border:1px solid rgba(255,255,255,.08);
+      overflow:hidden;
     }
+    /* 👇 center photo inside circle (zoom + fit) */
+    .wa-logo-inner img{
+      width:100%; height:100%; object-fit:cover;
+      transform: scale(1.12); /* slight zoom like WA style */
+      filter: saturate(1.1) contrast(1.05);
+    }
+
+    /* ✅ WhatsApp style small “tail” (chonch) */
+    .wa-tail{
+      position:absolute;
+      width:38px; height:38px;
+      left:54%;
+      top:96px;
+      transform: rotate(18deg);
+      z-index:1;
+    }
+    .wa-tail:before{
+      content:"";
+      position:absolute; inset:0;
+      background: rgba(17,27,33,.92);
+      border:1px solid rgba(255,255,255,.08);
+      clip-path: polygon(0 20%, 100% 0, 78% 100%, 0 72%);
+      border-radius: 8px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.25);
+    }
+
     .splash-title{
-      font-weight:700; letter-spacing:.6px;
-      color:rgba(233,237,239,.95);
+      margin-top:18px;
+      letter-spacing:.22em;
+      font-weight:600;
+      color:rgba(233,237,239,.85);
+      text-transform:uppercase;
       font-size:16px;
     }
     .splash-sub{
-      color:rgba(134,150,160,.95);
-      font-size:12px; text-align:center; line-height:1.4;
+      margin-top:10px;
+      color:rgba(134,150,160,.9);
+      font-size:13px;
     }
-    .loader{
-      width:160px; height:5px; border-radius:999px;
+    .progress{
+      width:min(320px, 78vw);
+      height:4px;
+      border-radius:999px;
       background: rgba(255,255,255,.08);
-      overflow:hidden; position:relative;
-      border: 1px solid rgba(255,255,255,.06);
+      overflow:hidden;
+      margin-top:18px;
+      border:1px solid rgba(255,255,255,.06);
     }
-    .loader::after{
-      content:""; position:absolute; inset:0;
-      width:45%; height:100%;
-      background: linear-gradient(90deg, transparent, rgba(0,168,132,.9), transparent);
-      transform: translateX(-60%);
-      animation: load 1.1s infinite ease-in-out;
+    .bar{
+      height:100%;
+      width:0%;
+      background: linear-gradient(90deg, var(--primary), var(--primary2));
+      border-radius:999px;
+      animation: loadbar 3s ease forwards;
     }
-    @keyframes load{
-      0%{ transform: translateX(-60%); }
-      100%{ transform: translateX(220%); }
-    }
+    @keyframes loadbar{ to{ width:100%; } }
+    @keyframes spin{ to{ transform: rotate(360deg); } }
 
-    /* ---------------- Home (Sessions) ---------------- */
+    /* ---------------- HOME (sessions) ---------------- */
     #home-view{
       width:100%; height:100%;
-      display:flex; flex-direction:column; align-items:center;
-      padding:16px; overflow-y:auto;
+      display:none;
+      overflow:auto;
+      padding:18px 14px 30px;
     }
     .topbar{
-      width:100%; max-width:520px;
       display:flex; align-items:center; justify-content:space-between;
-      padding:14px 12px;
-      position:sticky; top:0;
-      background: rgba(11,20,26,.85);
-      backdrop-filter: blur(12px);
-      z-index:5;
-      border-bottom: 1px solid rgba(255,255,255,.06);
+      padding:10px 6px 14px;
     }
     .brand{
-      display:flex; align-items:center; gap:10px;
+      display:flex; gap:10px; align-items:center;
     }
     .brand-badge{
-      width:34px; height:34px; border-radius:12px;
-      background: rgba(0,168,132,.18);
-      border:1px solid rgba(0,168,132,.22);
-      display:flex; align-items:center; justify-content:center;
-      color: var(--primary);
-      font-weight:800;
+      width:38px; height:38px; border-radius:12px;
+      background: linear-gradient(180deg, rgba(0,168,132,.25), rgba(0,0,0,.15));
+      border:1px solid rgba(255,255,255,.08);
+      display:grid; place-items:center;
+      box-shadow: 0 10px 25px rgba(0,0,0,.25);
     }
-    .brand-title{
-      display:flex; flex-direction:column; line-height:1.1;
+    .brand-title{ font-weight:700; font-size:18px; }
+    .brand-sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+    .exit-btn{
+      padding:10px 14px; border-radius:999px;
+      border:1px solid rgba(241,92,109,.35);
+      color:rgba(241,92,109,.95);
+      background: rgba(241,92,109,.08);
+      font-weight:600;
     }
-    .brand-title b{ font-size:14px; }
-    .brand-title span{ font-size:11px; color: var(--text-muted); }
-
-    #session-list{
-      width:100%; max-width:520px;
-      display:flex; flex-direction:column;
-      gap:10px; padding:14px 0 40px;
+    .sessions{
+      display:flex; flex-direction:column; gap:12px;
+      margin-top:8px;
     }
-
     .session-card{
-      background: linear-gradient(180deg, rgba(17,27,33,.96), rgba(15,26,32,.96));
-      border:1px solid rgba(255,255,255,.06);
-      border-radius:16px;
+      background: linear-gradient(180deg, rgba(17,27,33,.92), rgba(15,26,32,.92));
+      border:1px solid rgba(255,255,255,.07);
+      border-radius: 18px;
       padding:14px;
       display:flex; align-items:center; gap:12px;
+      box-shadow: var(--shadow);
       cursor:pointer;
-      box-shadow: 0 8px 20px rgba(0,0,0,.25);
-      transition: transform .14s ease, border-color .14s ease;
-    }
-    .session-card:active{ transform: scale(.99); }
-    .session-ico{
-      width:46px; height:46px; border-radius:16px;
-      background: rgba(0,168,132,.16);
-      border: 1px solid rgba(0,168,132,.20);
-      display:flex; align-items:center; justify-content:center;
       position:relative;
+      overflow:hidden;
     }
-    .pulse{
-      position:absolute; right:-2px; bottom:-2px;
-      width:12px; height:12px; border-radius:50%;
-      background: #32d074;
-      box-shadow: 0 0 0 0 rgba(50,208,116,.55);
-      animation: pulse 1.6s infinite;
-      border:2px solid var(--bg-panel);
+    .session-card::after{
+      content:"";
+      position:absolute; inset:-60% -30%;
+      background: radial-gradient(closest-side, rgba(0,168,132,.20), transparent 70%);
+      transform: rotate(18deg);
+      pointer-events:none;
+    }
+    .live-dot{
+      width:10px; height:10px; border-radius:50%;
+      background: #00e6a8;
+      box-shadow: 0 0 0 6px rgba(0,230,168,.12);
+      animation: pulse 1.5s ease-in-out infinite;
+      flex-shrink:0;
     }
     @keyframes pulse{
-      0%{ box-shadow: 0 0 0 0 rgba(50,208,116,.55); }
-      70%{ box-shadow: 0 0 0 10px rgba(50,208,116,0); }
-      100%{ box-shadow: 0 0 0 0 rgba(50,208,116,0); }
+      0%,100%{ transform: scale(1); opacity:1; }
+      50%{ transform: scale(1.15); opacity:.7; }
     }
-    .session-meta{ flex:1; min-width:0; }
-    .session-meta .num{
-      font-weight:700; font-size:14px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    .session-ico{
+      width:44px; height:44px; border-radius:50%;
+      background: rgba(0,168,132,.18);
+      border:1px solid rgba(0,168,132,.25);
+      display:grid; place-items:center;
+      flex-shrink:0;
+      font-size:18px;
     }
-    .session-meta .sub{
-      font-size:11px; color: var(--text-muted);
-      margin-top:2px;
-    }
-    .enter{
-      font-size:12px; color: rgba(233,237,239,.9);
-      background: rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.06);
-      padding:8px 10px; border-radius:12px;
-    }
+    .session-info{ flex:1; min-width:0; }
+    .session-num{ font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .session-meta{ font-size:12px; color:var(--muted); margin-top:3px; }
 
-    /* ---------------- App (Chats/Groups/Status) ---------------- */
-    #app-view{ display:none; width:100%; height:100%; position:relative; }
-    .sidebar{
+    /* ---------------- APP ---------------- */
+    #app-view{ display:none; width:100%; height:100%; }
+
+    .app-shell{
       width:100%; height:100%;
       display:flex; flex-direction:column;
-      background: var(--bg-panel);
+      background: var(--panel);
     }
     .app-header{
-      height:64px; background: rgba(17,27,33,.92);
-      backdrop-filter: blur(10px);
-      display:flex; justify-content:space-between; align-items:center;
+      height:60px;
+      display:flex; align-items:center; justify-content:space-between;
       padding:0 14px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
+      border-bottom:1px solid rgba(255,255,255,.06);
+      background: linear-gradient(180deg, rgba(17,27,33,.98), rgba(17,27,33,.92));
     }
-    .app-header .title{
-      font-weight:800; letter-spacing:.2px;
+    .header-left{
+      display:flex; gap:10px; align-items:center;
     }
-    .app-header button{
-      background: rgba(241,92,109,.12);
-      border: 1px solid rgba(241,92,109,.20);
-      color: #f15c6d;
-      border-radius:12px;
-      padding:8px 10px;
+    .header-title{ font-weight:800; font-size:18px; }
+    .header-sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+    .header-right{
+      display:flex; gap:10px; align-items:center;
+    }
+    .pill{
+      padding:8px 12px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      font-size:12px;
+      color:rgba(233,237,239,.85);
+    }
+    .exit-mini{
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid rgba(241,92,109,.35);
+      color:rgba(241,92,109,.95);
+      background: rgba(241,92,109,.08);
+      font-weight:700;
       cursor:pointer;
     }
 
+    /* Tabs + badge */
     .tabs{
       display:flex;
       background: rgba(17,27,33,.92);
-      border-bottom: 1px solid rgba(255,255,255,.06);
+      border-bottom:1px solid rgba(255,255,255,.06);
     }
     .tab-btn{
-      flex:1; padding:12px;
-      border:none; background:none;
-      color: var(--text-muted);
-      font-weight:700;
-      cursor:pointer;
-      border-bottom: 3px solid transparent;
-    }
-    .tab-btn.active{
-      color: var(--primary);
-      border-bottom-color: var(--primary);
-    }
-
-    .banner{
-      display:none;
-      margin:10px 12px 0;
-      padding:10px 12px;
-      border-radius:14px;
-      background: rgba(0,168,132,.12);
-      border: 1px solid rgba(0,168,132,.18);
-      color: rgba(233,237,239,.95);
-      font-size:12px;
-    }
-    .banner.show{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .banner button{
-      background: rgba(0,168,132,.18);
-      color: rgba(233,237,239,.95);
-      border: 1px solid rgba(0,168,132,.22);
-      border-radius:12px;
-      padding:6px 10px;
-      cursor:pointer;
-      font-weight:700;
-      font-size:12px;
-    }
-
-    .chat-list{
       flex:1;
-      overflow-y:auto;
-      padding: 6px 0 90px;
+      padding:12px 10px;
+      border:none;
+      background:none;
+      color: var(--muted);
+      font-weight:700;
+      cursor:pointer;
+      position:relative;
+    }
+    .tab-btn.active{ color: var(--primary); }
+    .tab-indicator{
+      position:absolute; left:18px; right:18px; bottom:0;
+      height:3px; border-radius:999px;
+      background: transparent;
+    }
+    .tab-btn.active .tab-indicator{
+      background: linear-gradient(90deg, var(--primary), var(--primary2));
+    }
+    .badge{
+      display:none;
+      position:absolute;
+      top:8px; right:22px;
+      min-width:18px;
+      padding:2px 6px;
+      border-radius:999px;
+      background: #00a884;
+      color: #001a12;
+      font-size:11px;
+      font-weight:900;
+      border:1px solid rgba(255,255,255,.12);
+    }
+    .badge.show{ display:inline-block; }
+
+    /* list */
+    .list{
+      flex:1;
+      overflow:auto;
+      background: linear-gradient(180deg, rgba(15,26,32,.35), transparent 18%);
+      padding-bottom: 18px;
     }
     .chat-item{
       display:flex;
-      padding:12px 14px;
-      align-items:center;
       gap:12px;
-      border-bottom: 1px solid rgba(255,255,255,.05);
+      align-items:center;
+      padding: 12px 14px;
+      border-bottom:1px solid rgba(255,255,255,.05);
       cursor:pointer;
-      transition: background .14s ease;
     }
-    .chat-item:hover{ background: rgba(255,255,255,.03); }
+    .chat-item:active{ background: rgba(255,255,255,.04); }
     .avatar{
       width:46px; height:46px;
       border-radius:50%;
-      background:#6a7f8a;
+      background:#3a4a55;
       object-fit:cover;
+      border:1px solid rgba(255,255,255,.08);
       flex-shrink:0;
     }
     .chat-mid{ flex:1; min-width:0; }
-    .chat-mid .name{
+    .chat-name{
       font-weight:800; font-size:14px;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    .chat-mid .sub{
-      margin-top:2px;
-      font-size:12px; color: var(--text-muted);
+    .chat-num{
+      margin-top:3px;
+      font-size:12px;
+      color: var(--muted);
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     .chat-right{
       display:flex; flex-direction:column; align-items:flex-end; gap:6px;
+      min-width:52px;
     }
-    .badge{
-      min-width:20px; height:20px;
+    .small-time{ font-size:11px; color:rgba(134,150,160,.9); }
+    .unread-dot{
+      display:none;
+      width:18px; height:18px;
       border-radius:999px;
       background: var(--primary);
-      color:#072b23;
-      display:none;
-      align-items:center; justify-content:center;
-      font-size:12px;
+      color:#001a12;
+      font-size:11px;
       font-weight:900;
-      padding:0 6px;
-    }
-    .badge.show{ display:flex; }
-    .tiny-time{
-      font-size:10px; color: rgba(134,150,160,.95);
+      display:grid; place-items:center;
     }
 
-    /* ---------------- Chat Window ---------------- */
+    /* ---------------- CHAT WINDOW ---------------- */
     #chat-window{
-      position:absolute; top:0; left:0;
-      width:100%; height:100%;
-      background: var(--bg-dark);
-      z-index:50;
+      position:fixed; inset:0; z-index:50;
+      background: var(--bg);
       display:flex; flex-direction:column;
-      transform: translateX(100%);
-      transition: transform .28s cubic-bezier(.2,.8,.2,1);
+      transform: translateX(110%);
+      transition: transform .26s cubic-bezier(.2,.8,.2,1);
     }
+    #chat-window.show{ transform: translateX(0); }
+
     .chat-nav{
-      height:64px;
-      background: rgba(17,27,33,.92);
-      backdrop-filter: blur(10px);
-      display:flex; align-items:center;
-      padding:0 10px;
-      gap:10px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
+      height:60px;
+      display:flex; align-items:center; gap:10px;
+      padding: 0 10px;
+      background: rgba(17,27,33,.95);
+      border-bottom:1px solid rgba(255,255,255,.06);
     }
-    .chat-nav button{
-      font-size:22px; background:none; border:none; color:white;
+    .back-btn{
+      width:42px; height:42px;
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+      font-size:18px;
+      display:grid; place-items:center;
       cursor:pointer;
     }
-    .chat-nav .head{
-      flex:1; min-width:0;
-      display:flex; flex-direction:column;
-      line-height:1.1;
+    .nav-title{
+      display:flex; flex-direction:column; min-width:0;
     }
-    .chat-nav .head b{
-      font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    .nav-name{
+      font-weight:900; font-size:14px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    .chat-nav .head span{
-      font-size:11px; color: var(--text-muted);
+    .nav-sub{
+      font-size:12px; color:var(--muted);
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     .info-btn{
-      width:38px; height:38px; border-radius:12px;
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(255,255,255,.06);
-      color: rgba(233,237,239,.95);
-      display:flex; align-items:center; justify-content:center;
+      margin-left:auto;
+      width:42px; height:42px;
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+      font-size:18px;
+      display:grid; place-items:center;
       cursor:pointer;
-      font-weight:900;
     }
 
     .messages-area{
-      flex:1; overflow-y:auto;
-      padding: 14px 12px 70px;
-      display:flex; flex-direction:column; gap:6px;
-      background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
-      background-size: 420px;
-      opacity:.97;
+      flex:1;
+      overflow:auto;
+      padding: 14px 12px 22px; /* ✅ bottom padding fixed */
+      background:
+        radial-gradient(600px 400px at 50% 20%, rgba(0,168,132,.08), transparent 65%),
+        url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+      background-size: auto, 420px;
+      background-blend-mode: normal;
+    }
+    .load-more{
+      display:flex; justify-content:center;
+      margin: 6px 0 12px;
+    }
+    .load-more button{
+      border:none;
+      padding:8px 12px;
+      border-radius:999px;
+      background: rgba(255,255,255,.06);
+      color: rgba(233,237,239,.88);
+      border:1px solid rgba(255,255,255,.08);
+      font-weight:700;
+      cursor:pointer;
     }
 
+    .msg-row{
+      display:flex;
+      margin: 4px 0;
+    }
     .msg{
-      max-width: 84%;
-      padding: 6px 8px;
+      max-width: 82%;
+      padding: 7px 9px;
       border-radius: 10px;
-      font-size: 14.5px;
-      position: relative;
-      box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+      font-size: 14px;
       color: #e9edef;
-      line-height: 1.4;
-      word-wrap: break-word;
-      display:flex; flex-direction:column;
+      line-height: 1.35;
+      box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+      display:flex;
+      flex-direction:column;
+      position:relative;
+      word-break: break-word;
     }
-    .msg.sent{ align-self:flex-end; background: var(--bubble-sent); border-top-right-radius: 4px; }
-    .msg.rec{ align-self:flex-start; background: var(--bubble-rec); border-top-left-radius: 4px; }
+    .sent{ margin-left:auto; background: var(--sent); border-top-right-radius: 4px; }
+    .recv{ margin-right:auto; background: var(--recv); border-top-left-radius: 4px; }
 
-    .msg.sticker{ background: transparent !important; box-shadow:none !important; padding:0; }
-    .sender-name{ font-size:12px; color:#f2c94c; font-weight:800; margin-bottom:2px; }
-    .time{ font-size:10px; color: rgba(255,255,255,.60); align-self:flex-end; margin-top:4px; }
+    .sender-name{
+      font-size:12px;
+      color:#f2c94c;
+      font-weight:900;
+      margin-bottom:3px;
+    }
+    .time{
+      font-size:10px;
+      color: rgba(255,255,255,.60);
+      align-self:flex-end;
+      margin-top:4px;
+    }
 
+    /* reply block */
     .reply-box{
-      background: rgba(0,0,0,0.16);
+      background: rgba(0,0,0,.16);
       border-left: 4px solid var(--primary);
-      border-radius: 6px;
+      border-radius: 8px;
       padding: 6px 8px;
       margin-bottom: 6px;
-      font-size: 12px;
-      display:flex; flex-direction:column;
       cursor:pointer;
     }
-    .reply-sender{ color: var(--primary); font-weight:900; font-size:11px; margin-bottom:2px; }
-    .reply-text{ color: rgba(255,255,255,.72); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .reply-sender{ color: var(--primary2); font-weight:900; font-size:11px; }
+    .reply-text{
+      color: rgba(255,255,255,.72);
+      font-size:12px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      margin-top:2px;
+    }
 
-    /* Media placeholders like WA */
+    /* media bubble */
     .media-wrap{
-      position:relative; border-radius:10px; overflow:hidden;
-      border: 1px solid rgba(255,255,255,.06);
-      background: rgba(255,255,255,.06);
+      border-radius: 10px;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.12);
     }
-    img.chat-img{ width: 240px; max-width: 100%; display:block; border-radius:10px; }
-    img.sticker-img{ width: 140px; height:auto; object-fit:contain; display:block; }
+    .chat-img{
+      width: 100%;
+      display:block;
+      border-radius: 10px;
+    }
 
-    .media-overlay{
-      position:absolute; inset:0;
+    /* WA style: blurred placeholder + download/play */
+    .media-placeholder{
+      width: 260px; max-width: 100%;
+      height: 180px;
       display:flex; align-items:center; justify-content:center;
-      background: rgba(0,0,0,.35);
-      backdrop-filter: blur(3px);
+      position:relative;
+      background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+    }
+    .media-placeholder::before{
+      content:"";
+      position:absolute; inset:0;
+      backdrop-filter: blur(8px);
+      opacity:.85;
+    }
+    .media-btn{
+      position:relative; z-index:2;
+      width:54px; height:54px;
+      border-radius: 999px;
+      display:grid; place-items:center;
+      border:1px solid rgba(255,255,255,.18);
+      background: rgba(0,0,0,.25);
+      font-size:22px;
       cursor:pointer;
     }
-    .dl-btn{
-      width:52px; height:52px; border-radius:50%;
-      background: rgba(0,0,0,.35);
-      border: 1px solid rgba(255,255,255,.18);
-      display:flex; align-items:center; justify-content:center;
-      color:white; font-size:20px; font-weight:900;
-    }
 
-    /* Audio WA-like */
+    /* audio WA-ish */
     .wa-audio{
-      width: 260px; max-width: 100%;
-      padding:10px 10px;
-      border-radius: 12px;
-      background: rgba(0,0,0,.14);
-      border: 1px solid rgba(255,255,255,.06);
+      width: 250px; max-width:100%;
+      height: 48px;
       display:flex; align-items:center; gap:10px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.12);
     }
-    .wa-audio .pbtn{
-      width:44px; height:44px; border-radius:50%;
+    .wa-audio .btn{
+      width:36px; height:36px; border-radius:999px;
+      display:grid; place-items:center;
       background: rgba(255,255,255,.10);
-      border: 1px solid rgba(255,255,255,.10);
-      display:flex; align-items:center; justify-content:center;
-      font-weight:900;
+      border:1px solid rgba(255,255,255,.12);
       cursor:pointer;
       flex-shrink:0;
     }
     .wa-audio .meta{ flex:1; min-width:0; }
     .wa-audio .bar{
-      height:4px; border-radius:999px;
-      background: rgba(255,255,255,.18);
+      width:100%; height:3px;
+      background: rgba(255,255,255,.25);
+      border-radius:999px;
       overflow:hidden;
       margin-top:6px;
+      animation:none;
     }
-    .wa-audio .bar i{
-      display:block; height:100%;
+    .wa-audio .bar > i{
+      display:block;
+      height:100%;
       width:0%;
-      background: rgba(0,168,132,.95);
+      background: linear-gradient(90deg, var(--primary), var(--primary2));
     }
 
-    .secure-footer{
-      text-align:center; font-size:10px; color: var(--text-muted);
-      background: rgba(11,20,26,0.92);
-      padding: 12px 14px;
-      margin: 14px auto 0;
-      border-radius: 999px;
-      display:flex; align-items:center; justify-content:center; gap:6px;
-      width: fit-content;
-      border: 1px solid rgba(255,255,255,.06);
-    }
-
-    /* Lightbox */
-    #lightbox{ display:none; position:fixed; inset:0; background:black; z-index:100; align-items:center; justify-content:center; }
-    #lightbox img{ max-width:100%; max-height:100%; }
-    .lb-close{ position:absolute; top:20px; left:20px; color:white; font-size:30px; cursor:pointer; }
-
-    /* Tiny toast (non-blocking) */
-    #toast{
-      position: fixed; left:50%; bottom:18px;
-      transform: translateX(-50%) translateY(20px);
-      opacity:0;
+    /* toast */
+    .toast{
+      position:fixed;
+      left:50%;
+      transform: translateX(-50%);
+      top:76px;
+      z-index:10000;
       background: rgba(17,27,33,.92);
-      border: 1px solid rgba(255,255,255,.08);
-      border-radius: 14px;
-      padding: 10px 12px;
-      color: rgba(233,237,239,.95);
-      font-size: 12px;
-      display:flex; align-items:center; gap:10px;
+      border:1px solid rgba(255,255,255,.10);
       box-shadow: var(--shadow);
-      z-index: 120;
-      transition: opacity .18s ease, transform .18s ease;
+      padding: 10px 12px;
+      border-radius: 14px;
+      display:none;
+      align-items:center;
+      gap:10px;
+      min-width: 240px;
       max-width: 92vw;
     }
-    #toast.show{ opacity:1; transform: translateX(-50%) translateY(0); }
-    #toast b{ color: var(--primary); }
-    #toast button{
+    .toast.show{ display:flex; }
+    .toast .x{
+      color: var(--danger);
+      font-weight:900;
+      font-size:16px;
+    }
+    .toast .ok{
       margin-left:auto;
-      background: rgba(0,168,132,.14);
-      border: 1px solid rgba(0,168,132,.18);
-      color: rgba(233,237,239,.95);
-      border-radius: 12px;
-      padding: 6px 10px;
+      padding:8px 12px;
+      border-radius: 999px;
+      border:none;
+      font-weight:900;
+      background: rgba(0,168,132,.16);
+      border:1px solid rgba(0,168,132,.25);
+      color: rgba(233,237,239,.92);
+    }
+
+    /* lightbox */
+    #lightbox{
+      display:none; position:fixed; inset:0; z-index:9998;
+      background: rgba(0,0,0,.92);
+      align-items:center; justify-content:center;
+    }
+    #lightbox img{ max-width:100%; max-height:100%; }
+    .lb-close{
+      position:absolute; top:18px; left:18px;
+      width:44px; height:44px;
+      border-radius: 14px;
+      display:grid; place-items:center;
+      background: rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.10);
+      font-size:22px;
       cursor:pointer;
-      font-weight:800;
-      font-size:12px;
+      color:#fff;
     }
   </style>
 </head>
@@ -495,707 +582,683 @@
 
   <!-- Splash -->
   <div id="splash">
-    <div class="splash-wrap">
-      <div class="wa-logo">
-        <div class="circle">
-          <img src="/pic.png" alt="logo">
-        </div>
-        <div class="tail"></div>
+    <div class="wa-logo-wrap">
+      <div class="wa-logo-inner">
+        <!-- ✅ your /pic.png inside circle -->
+        <img src="/pic.png" alt="logo" />
       </div>
-      <div class="splash-title">WHATSAPP VIP</div>
-      <div class="splash-sub">Loading sessions & syncing chats…</div>
-      <div class="loader"></div>
+      <div class="wa-tail"></div>
     </div>
+
+    <div class="splash-title">WHATSAPP VIP</div>
+    <div class="splash-sub" id="splash-sub">Loading sessions & syncing chats...</div>
+    <div class="progress"><div class="bar"></div></div>
   </div>
 
-  <!-- Home -->
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <div class="x">✖</div>
+    <div id="toast-msg" style="font-weight:700; color:rgba(233,237,239,.9)">Error</div>
+    <button class="ok" onclick="hideToast()">OK</button>
+  </div>
+
+  <!-- Home Sessions -->
   <div id="home-view">
     <div class="topbar">
       <div class="brand">
-        <div class="brand-badge">W</div>
-        <div class="brand-title">
-          <b>WhatsApp VIP</b>
-          <span>Choose a live session</span>
+        <div class="brand-badge">💬</div>
+        <div>
+          <div class="brand-title">WhatsApp</div>
+          <div class="brand-sub">Select a session</div>
         </div>
       </div>
-      <div style="color:var(--text-muted); font-size:12px;">● Live</div>
+      <button class="exit-btn" onclick="location.reload()">EXIT</button>
     </div>
-    <div id="session-list"></div>
+
+    <div class="sessions" id="session-list"></div>
   </div>
 
   <!-- App -->
   <div id="app-view">
-    <div class="sidebar">
+    <div class="app-shell">
       <div class="app-header">
-        <div class="title">WhatsApp</div>
-        <button onclick="exitApp()">EXIT</button>
+        <div class="header-left">
+          <div>
+            <div class="header-title">WhatsApp</div>
+            <div class="header-sub" id="hdr-sub">Connected</div>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="pill" id="active-bot-pill">BOT: -</div>
+          <button class="exit-mini" onclick="location.reload()">EXIT</button>
+        </div>
       </div>
 
       <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('chats', event)">Chats</button>
-        <button class="tab-btn" onclick="switchTab('groups', event)">Groups</button>
-        <button class="tab-btn" onclick="switchTab('status', event)">Status</button>
+        <button class="tab-btn active" data-tab="chats" onclick="switchTab('chats', event)">
+          Chats
+          <span class="badge" id="badge-chats"></span>
+          <span class="tab-indicator"></span>
+        </button>
+        <button class="tab-btn" data-tab="groups" onclick="switchTab('groups', event)">
+          Groups
+          <span class="badge" id="badge-groups"></span>
+          <span class="tab-indicator"></span>
+        </button>
+        <button class="tab-btn" data-tab="status" onclick="switchTab('status', event)">
+          Status
+          <span class="badge" id="badge-status"></span>
+          <span class="tab-indicator"></span>
+        </button>
       </div>
 
-      <div id="top-banner" class="banner">
-        <span id="banner-text">New updates</span>
-        <button onclick="clearBanner()">OK</button>
-      </div>
-
-      <div class="chat-list" id="chat-list-box"></div>
-    </div>
-
-    <div id="chat-window">
-      <div class="chat-nav">
-        <button onclick="closeChat()">←</button>
-        <img id="header-avatar" class="avatar" src="">
-        <div class="head">
-          <b id="header-name">User</b>
-          <span id="header-sub">Online</span>
-        </div>
-        <div class="info-btn" onclick="showInfo()">i</div>
-      </div>
-      <div class="messages-area" id="msg-box"></div>
+      <div class="list" id="chat-list-box"></div>
     </div>
   </div>
 
+  <!-- Chat window -->
+  <div id="chat-window">
+    <div class="chat-nav">
+      <button class="back-btn" onclick="closeChat()">←</button>
+      <img id="header-avatar" class="avatar" src="" alt="avatar" />
+      <div class="nav-title">
+        <div class="nav-name" id="header-name">User</div>
+        <div class="nav-sub" id="header-sub">-</div>
+      </div>
+      <button class="info-btn" onclick="showInfo()">i</button>
+    </div>
+
+    <div class="messages-area" id="msg-box">
+      <!-- dynamic -->
+    </div>
+  </div>
+
+  <!-- Lightbox -->
   <div id="lightbox">
-    <div class="lb-close" onclick="document.getElementById('lightbox').style.display='none'">×</div>
-    <img id="lb-img" src="">
-  </div>
-
-  <div id="toast">
-    <span id="toast-text">New message</span>
-    <button onclick="hideToast()">View</button>
+    <div class="lb-close" onclick="closeLightbox()">×</div>
+    <img id="lb-img" src="" alt="preview" />
   </div>
 
 <script>
-/* ---------------- IndexedDB (fast cache) ---------------- */
-const DB_NAME = "WA_VIP_DB";
-let db = null;
+  /* ---------------- small helpers ---------------- */
+  const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
+  const cleanNumber = (jid) => {
+    if(!jid) return "";
+    // remove @server, remove :device
+    const left = jid.split("@")[0];
+    return left.includes(":") ? left.split(":")[0] : left;
+  };
+  const isGroupJid = (jid)=> (jid||"").includes("@g.us");
+  const isStatusJid = (jid)=> (jid||"") === "status" || (jid||"").includes("status");
 
-function openDB(){
-  return new Promise((resolve) => {
-    const req = indexedDB.open(DB_NAME, 2);
-    req.onupgradeneeded = (e) => {
-      db = e.target.result;
-      if(!db.objectStoreNames.contains("media")) db.createObjectStore("media", { keyPath:"id" });
-      if(!db.objectStoreNames.contains("chats")) db.createObjectStore("chats", { keyPath:"key" }); // key = bot|type
-      if(!db.objectStoreNames.contains("messages")) db.createObjectStore("messages", { keyPath:"key" }); // key = bot|chat|message_id
-      if(!db.objectStoreNames.contains("unread")) db.createObjectStore("unread", { keyPath:"key" }); // key = bot|chat
-    };
-    req.onsuccess = (e) => { db = e.target.result; resolve(true); };
-    req.onerror = () => resolve(false);
-  });
-}
-function put(store, val){
-  return new Promise((resolve) => {
-    if(!db) return resolve(false);
-    const tx = db.transaction([store], "readwrite");
-    tx.objectStore(store).put(val);
-    tx.oncomplete = () => resolve(true);
-    tx.onerror = () => resolve(false);
-  });
-}
-function get(store, key){
-  return new Promise((resolve) => {
-    if(!db) return resolve(null);
-    const tx = db.transaction([store], "readonly");
-    const req = tx.objectStore(store).get(key);
-    req.onsuccess = (e) => resolve(e.target.result || null);
-    req.onerror = () => resolve(null);
-  });
-}
-function getAll(store){
-  return new Promise((resolve) => {
-    if(!db) return resolve([]);
-    const tx = db.transaction([store], "readonly");
-    const req = tx.objectStore(store).getAll();
-    req.onsuccess = (e) => resolve(e.target.result || []);
-    req.onerror = () => resolve([]);
-  });
-}
-
-/* ---------------- Existing media cache helpers ---------------- */
-function saveLocal(id,c){ if(db) db.transaction(["media"],"readwrite").objectStore("media").put({id,c}); }
-function getLocal(id,cb){ if(!db) return cb(null); db.transaction(["media"],"readonly").objectStore("media").get(id).onsuccess=e=>cb(e.target.result?e.target.result.c:null); }
-
-/* ---------------- State ---------------- */
-let currentBot = null;
-let allChats = [];
-let activeTab = 'chats';
-let activeChatID = null;
-let pollInterval = null;
-let knownMessageIDs = new Set();
-let unreadMap = new Map(); // chat_id => count
-let lastToastChat = null;
-
-window.onload = async () => {
-  await openDB();
-
-  // splash 3s
-  setTimeout(() => {
-    document.getElementById('splash').style.display = 'none';
-  }, 3000);
-
-  loadSessions();
-  restoreUnread();
-};
-
-function exitApp(){
-  currentBot=null;
-  activeChatID=null;
-  if(pollInterval) clearInterval(pollInterval);
-  document.getElementById('app-view').style.display='none';
-  document.getElementById('home-view').style.display='flex';
-  loadSessions();
-}
-
-function showToast(text, chatID){
-  lastToastChat = chatID || null;
-  document.getElementById('toast-text').innerHTML = text;
-  document.getElementById('toast').classList.add('show');
-  setTimeout(() => hideToast(), 4000);
-}
-function hideToast(){
-  document.getElementById('toast').classList.remove('show');
-}
-document.querySelector('#toast button').onclick = () => {
-  hideToast();
-  if(lastToastChat){
-    const c = allChats.find(x => x.id === lastToastChat);
-    if(c) openChat(c.id, c.name);
+  function showToast(msg){
+    const t=document.getElementById('toast');
+    document.getElementById('toast-msg').innerText=msg;
+    t.classList.add('show');
   }
-};
+  function hideToast(){ document.getElementById('toast').classList.remove('show'); }
 
-/* ---------------- Banner ---------------- */
-function showBanner(msg){
-  const b = document.getElementById('top-banner');
-  document.getElementById('banner-text').innerText = msg;
-  b.classList.add('show');
-  setTimeout(() => b.classList.remove('show'), 5000);
-}
-function clearBanner(){ document.getElementById('top-banner').classList.remove('show'); }
-
-/* ---------------- Sessions ---------------- */
-function loadSessions() {
-  fetch('/api/sessions').then(r=>r.json()).then(res=>{
-    const box=document.getElementById('session-list');
-    box.innerHTML='';
-    res.forEach(num=>{
-      box.innerHTML += `
-        <div class="session-card" onclick="startApp('${num}')">
-          <div class="session-ico">📱<div class="pulse"></div></div>
-          <div class="session-meta">
-            <div class="num">${num}</div>
-            <div class="sub">Tap to open chats</div>
-          </div>
-          <div class="enter">OPEN</div>
-        </div>`;
-    });
-  }).catch(()=>{
-    showBanner("Failed to load sessions (network).");
-  });
-}
-
-async function startApp(id){
-  currentBot=id;
-  document.getElementById('home-view').style.display='none';
-  document.getElementById('app-view').style.display='block';
-
-  // Load cached chats instantly
-  await loadChatsFromCache();
-  renderList();
-
-  // Then refresh from server in background
-  loadChatsFromServer();
-}
-
-/* ---------------- Chats cache ---------------- */
-async function loadChatsFromCache(){
-  const key = `${currentBot}|chats`;
-  const cached = await get("chats", key);
-  allChats = cached?.data || [];
-}
-
-async function saveChatsToCache(){
-  const key = `${currentBot}|chats`;
-  await put("chats", { key, data: allChats, updated_at: Date.now() });
-}
-
-async function loadChatsFromServer(){
-  try{
-    const res = await fetch(`/api/chats?bot_id=${encodeURIComponent(currentBot)}`);
-    const fresh = await res.json();
-    if(Array.isArray(fresh)){
-      allChats = fresh;
-      await saveChatsToCache();
-      renderList();
-    }
-  }catch(e){
-    showBanner("Using cached chats (server unreachable).");
-  }
-}
-
-/* ---------------- Unread ---------------- */
-async function restoreUnread(){
-  const all = await getAll("unread");
-  all.forEach(x => {
-    const parts = (x.key || "").split("|");
-    if(parts.length === 2){
-      const chatID = parts[1];
-      unreadMap.set(chatID, x.count || 0);
-    }
-  });
-}
-async function setUnread(botID, chatID, count){
-  unreadMap.set(chatID, count);
-  await put("unread", { key: `${botID}|${chatID}`, count, updated_at: Date.now() });
-}
-async function incUnread(botID, chatID){
-  const cur = unreadMap.get(chatID) || 0;
-  await setUnread(botID, chatID, cur+1);
-}
-async function clearUnread(botID, chatID){
-  await setUnread(botID, chatID, 0);
-}
-
-/* ---------------- Tabs & list ---------------- */
-function switchTab(t, ev){
-  activeTab = t;
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  if(ev && ev.target) ev.target.classList.add('active');
-  renderList();
-}
-
-function renderList(){
-  const list = document.getElementById('chat-list-box');
-  list.innerHTML='';
-
-  const filtered = allChats.filter(c=>{
-    if(activeTab==='groups') return c.type==='group';
-    if(activeTab==='status') return c.type==='status'; // اگر backend نے status chats list میں add کی
-    return c.type==='user';
-  });
-
-  if(filtered.length === 0){
-    list.innerHTML = `<div style="padding:18px;color:var(--text-muted);font-size:12px;">
-      No items. (Tab: ${activeTab})
-    </div>`;
-    return;
-  }
-
-  filtered.forEach(c=>{
-    const aid = `av_${(c.id||'').replace(/[^a-zA-Z0-9]/g,'')}`;
-    const badgeCount = unreadMap.get(c.id) || 0;
-
-    list.innerHTML += `
-      <div class="chat-item" onclick="openChat('${escapeHTML(c.id)}','${escapeHTML(c.name)}')">
-        <img id="${aid}" class="avatar" src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=0b141a&color=e9edef">
-        <div class="chat-mid">
-          <div class="name">${escapeHTML(c.name)}</div>
-          <div class="sub">${escapeHTML(prettyChatSub(c))}</div>
-        </div>
-        <div class="chat-right">
-          <div class="badge ${badgeCount>0?'show':''}">${badgeCount}</div>
-        </div>
-      </div>`;
-
-    // avatar background fetch
-    fetch(`/api/avatar?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(c.id)}`)
-      .then(r=>r.json())
-      .then(d=>{ if(d && d.url) { const img = document.getElementById(aid); if(img) img.src = d.url; }})
-      .catch(()=>{});
-  });
-}
-
-function prettyChatSub(c){
-  // Prefer showing number instead of LID
-  // If chat id contains @s.whatsapp.net => show number part
-  if((c.id||'').includes('@')){
-    return (c.id.split('@')[0] || c.id);
-  }
-  return c.id || '';
-}
-
-function escapeHTML(s){
-  return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-
-/* ---------------- Messages caching ---------------- */
-function msgKey(bot, chat, mid){ return `${bot}|${chat}|${mid}`; }
-async function saveMessagesToCache(bot, chat, msgs){
-  for(const m of msgs){
-    if(!m || !m.message_id) continue;
-    await put("messages", { key: msgKey(bot, chat, m.message_id), bot, chat, m });
-  }
-}
-async function loadCachedMessages(bot, chat){
-  const all = await getAll("messages");
-  const out = all
-    .filter(x => x.bot === bot && x.chat === chat)
-    .map(x => x.m)
-    .sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
-  return out;
-}
-
-/* ---------------- Chat open & background sync ---------------- */
-async function openChat(cid, name){
-  activeChatID = cid;
-
-  document.getElementById('header-name').innerText = name;
-  document.getElementById('header-sub').innerText = cid.includes('@g.us') ? 'Group' : (cid.includes('@newsletter') ? 'Channel' : (cid.split('@')[0] || cid));
-  document.getElementById('header-avatar').src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0b141a&color=e9edef`;
-
-  const win=document.getElementById('chat-window');
-  win.style.transform='translateX(0)';
-
-  // mark unread cleared
-  await clearUnread(currentBot, cid);
-  renderList();
-
-  const box = document.getElementById('msg-box');
-  box.innerHTML = '';
-
-  knownMessageIDs.clear();
-
-  // 1) Load cached messages instantly
-  const cached = await loadCachedMessages(currentBot, cid);
-  if(cached.length){
-    cached.forEach(m => knownMessageIDs.add(m.message_id));
-    renderMessagesInto(box, cached, true);
-  }else{
-    // show in-chat loading (VIP style)
-    box.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:34px;color:var(--text-muted);">
-        <div class="wa-logo" style="transform:scale(.75);">
-          <div class="circle"><img src="/pic.png" alt="logo"></div>
-          <div class="tail"></div>
-        </div>
-        <div style="font-size:12px;">Loading messages…</div>
-        <div class="loader" style="width:140px;"></div>
-      </div>`;
-  }
-
-  // 2) Background fetch from server (no blocking popup)
-  await syncMessagesFromServer(cid, box, true);
-
-  // 3) Start polling ONLY for open chat
-  if(pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(() => syncMessagesFromServer(cid, box, false), 3500);
-}
-
-async function syncMessagesFromServer(cid, box, first){
-  if(activeChatID !== cid) return;
-
-  try{
-    const res = await fetch(`/api/messages?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(cid)}`);
-    const msgs = await res.json();
-
-    // old backend returns array; if future returns object, handle it too
-    const arr = Array.isArray(msgs) ? msgs : (msgs && msgs.messages ? msgs.messages : []);
-    if(!Array.isArray(arr)) return;
-
-    // Merge only new by message_id
-    const newOnes = [];
-    for(const m of arr){
-      if(!m || !m.message_id) continue;
-      if(knownMessageIDs.has(m.message_id)) continue;
-      knownMessageIDs.add(m.message_id);
-      newOnes.push(m);
-    }
-
-    if(newOnes.length){
-      // cache + render
-      await saveMessagesToCache(currentBot, cid, newOnes);
-      renderMessagesInto(box, newOnes, false);
-
-      // subtle banner
-      showBanner(`✅ ${newOnes.length} new message(s) in open chat`);
-      // keep scrolled bottom if user near bottom
-      const nearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 140;
-      if(nearBottom) box.scrollTop = box.scrollHeight;
-    }else if(first && !knownMessageIDs.size && arr.length){
-      // first load and we didn't have cache (loading screen was showing)
-      box.innerHTML = '';
-      arr.forEach(m => { if(m && m.message_id) knownMessageIDs.add(m.message_id); });
-      await saveMessagesToCache(currentBot, cid, arr);
-      renderMessagesInto(box, arr, true);
-    }
-
-  }catch(e){
-    if(first) showBanner("⚠️ Messages: using cache (server issue).");
-  }
-}
-
-function closeChat(){
-  document.getElementById('chat-window').style.transform='translateX(100%)';
-  if(pollInterval) clearInterval(pollInterval);
-  activeChatID = null;
-}
-
-/* ---------------- Render messages (WA-like) ---------------- */
-function renderMessagesInto(box, msgs, isFirstLoad){
-  if(isFirstLoad){
-    box.innerHTML = '';
-  }
-
-  msgs.forEach(m=>{
-    const t = m.is_from_me ? 'sent' : 'rec';
-    const time = new Date(m.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    const nameTag = (!m.is_from_me && m.is_group) ? `<span class="sender-name">${escapeHTML(m.sender_name || '')}</span>` : '';
-
-    let replyHtml = '';
-    if(m.quoted_msg){
-      replyHtml = `
-        <div class="reply-box">
-          <div class="reply-sender">${escapeHTML(m.quoted_sender || 'Unknown')}</div>
-          <div class="reply-text">${escapeHTML(m.quoted_msg || '')}</div>
-        </div>`;
-    }
-
-    let content = '';
-    if(m.is_sticker){
-      content = renderImage(m, true);
-    } else if(m.type === 'text') {
-      content = escapeHTML(m.content || '');
-    } else if(m.type === 'image') {
-      content = renderImage(m, false);
-    } else if(m.type === 'audio') {
-      content = renderAudio(m);
-    } else if(m.type === 'video') {
-      content = renderVideo(m);
-    } else {
-      content = renderFile(m);
-    }
-
-    const div = document.createElement('div');
-    div.className = m.is_sticker ? `msg sticker ${t}` : `msg ${t}`;
-
-    if(m.is_sticker){
-      div.innerHTML = `${content}<span class="time" style="text-shadow:1px 1px 2px black;">${time}</span>`;
-    }else{
-      div.innerHTML = `${replyHtml}${nameTag}${content}<span class="time">${time}</span>`;
-    }
-
-    box.appendChild(div);
-  });
-
-  if(isFirstLoad){
-    const footer = document.createElement('div');
-    footer.className = "secure-footer";
-    footer.innerHTML = "🔒 End-to-end Encrypted";
-    box.appendChild(footer);
-    box.scrollTop = box.scrollHeight;
-  }
-}
-
-/* ---------------- Media (WA placeholder + on-demand download) ---------------- */
-function renderImage(m, isSticker){
-  const uid = m.message_id;
-  const className = isSticker ? "sticker-img" : "chat-img";
-
-  // New backend method: messages content is MEDIA_WAITING
-  if(m.content === 'MEDIA_WAITING'){
-    // show blurred placeholder with download button
-    setTimeout(()=>{
-      getLocal(uid, (data)=>{
-        if(data){
-          const el = document.getElementById(`img-${uid}`);
-          if(el) el.src = data;
-          const ov = document.getElementById(`ov-${uid}`);
-          if(ov) ov.style.display = 'none';
-        }
-      });
-    },0);
-
-    return `
-      <div class="media-wrap">
-        <img id="img-${uid}" class="${className}" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQwIiBoZWlnaHQ9IjE2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjQwIiBoZWlnaHQ9IjE2MCIgZmlsbD0iIzE1MjEyOSIgcng9IjEyIi8+PHRleHQgeD0iNTAiIHk9Ijg4IiBmaWxsPSIjODY5NmEwIiBmb250LXNpemU9IjEyIj5NZW
-RpYSBub3QgZG93bmxvYWRlZDwvdGV4dD48L3N2Zz4=" onclick="showLightbox(this.src)">
-        <div id="ov-${uid}" class="media-overlay" onclick="downloadMedia('${uid}', 'img-${uid}', 'ov-${uid}')">
-          <div class="dl-btn">⬇</div>
-        </div>
-      </div>`;
-  }
-
-  // already has url/base64
-  return `<div class="media-wrap">
-    <img src="${m.content}" class="${className}" onclick="showLightbox(this.src)">
-  </div>`;
-}
-
-function renderAudio(m){
-  const uid = m.message_id;
-
-  if(m.content === 'MEDIA_WAITING'){
-    // try cached
-    setTimeout(()=>{
-      getLocal(uid, (data)=>{
-        if(data) setupAudio(uid, data);
-      });
-    },0);
-
-    return `
-      <div id="aud-${uid}" class="wa-audio">
-        <div class="pbtn" onclick="downloadAudio('${uid}', this)">⬇</div>
-        <div class="meta">
-          <div style="font-size:12px;color:rgba(233,237,239,.92);font-weight:800;">Voice message</div>
-          <div class="bar"><i id="bar-${uid}"></i></div>
-        </div>
-        <audio id="audio-${uid}"></audio>
-      </div>`;
-  }
-
-  return `<div class="wa-audio">
-    <div class="pbtn" onclick="(function(){const a=document.getElementById('a-${uid}'); a.paused?a.play():a.pause();})()">▶</div>
-    <div class="meta">
-      <audio id="a-${uid}" src="${m.content}" controls style="height:32px; width:100%; filter:invert(.92);"></audio>
-    </div>
-  </div>`;
-}
-
-function renderVideo(m){
-  const uid = m.message_id;
-  if(m.content === 'MEDIA_WAITING'){
-    return `
-      <div class="media-wrap" style="width:260px;max-width:100%;">
-        <div style="padding:18px;color:var(--text-muted);font-size:12px;">Video not downloaded</div>
-        <div id="ov-${uid}" class="media-overlay" onclick="downloadVideo('${uid}', 'ov-${uid}')">
-          <div class="dl-btn">⬇</div>
-        </div>
-      </div>`;
-  }
-  return `<div class="media-wrap" style="width:260px;max-width:100%;">
-    <video src="${m.content}" style="width:100%;border-radius:10px;display:block;" controls></video>
-  </div>`;
-}
-
-function renderFile(m){
-  const uid = m.message_id;
-  if(m.content === 'MEDIA_WAITING'){
-    return `<div class="media-wrap" style="padding:12px 12px;border-radius:12px;">
-      <div style="color:rgba(233,237,239,.92);font-weight:800;">Attachment</div>
-      <div style="color:var(--text-muted);font-size:12px;margin-top:4px;">Tap to download</div>
-      <div style="margin-top:10px;">
-        <button onclick="downloadFile('${uid}')" style="background:rgba(0,168,132,.14);border:1px solid rgba(0,168,132,.18);color:#e9edef;border-radius:12px;padding:8px 10px;font-weight:900;cursor:pointer;">⬇ Download</button>
-      </div>
-    </div>`;
-  }
-  return `<a href="${m.content}" target="_blank" style="color:#00a884;font-weight:800;">📄 Attachment</a>`;
-}
-
-/* ---------------- Download handlers (calls /api/media) ---------------- */
-async function downloadMedia(uid, imgID, overlayID){
-  try{
-    const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
-    const d = await r.json();
-    if(d && d.content){
-      saveLocal(uid, d.content);
-      const img = document.getElementById(imgID);
-      if(img) img.src = d.content;
-      const ov = document.getElementById(overlayID);
-      if(ov) ov.style.display='none';
-      showToast(`<b>Downloaded</b> image`, activeChatID);
-    }
-  }catch(e){
-    showBanner("❌ Failed to download media");
-  }
-}
-
-async function downloadAudio(uid, btn){
-  const audio = document.getElementById(`audio-${uid}`);
-  if(!audio) return;
-
-  // if audio not downloaded yet
-  if(!audio.src){
-    btn.innerText = "…";
+  /* ---------------- IndexedDB media cache ---------------- */
+  const dbName="WA_VIP_DB";
+  let db;
+  const req=indexedDB.open(dbName,1);
+  req.onupgradeneeded=e=>{
+    db=e.target.result;
+    db.createObjectStore("media",{keyPath:"id"});
+  };
+  req.onsuccess=e=>{ db=e.target.result; };
+  function saveLocal(id,c){
+    if(!db) return;
     try{
-      const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
-      const d = await r.json();
-      if(d && d.content){
-        saveLocal(uid, d.content);
-        audio.src = d.content;
-        btn.innerText = "▶";
-        audio.play();
-      }else{
-        btn.innerText = "⬇";
+      db.transaction(["media"],"readwrite").objectStore("media").put({id,c});
+    }catch{}
+  }
+  function getLocal(id,cb){
+    if(!db) return cb(null);
+    try{
+      db.transaction(["media"],"readonly").objectStore("media").get(id).onsuccess=e=>{
+        cb(e.target.result?e.target.result.c:null);
+      };
+    }catch{ cb(null); }
+  }
+
+  /* ---------------- LocalStorage message cache (fast reopen) ---------------- */
+  const LS = {
+    chatsKey: (bot,tab)=> `vip_${bot}_list_${tab}`,
+    msgsKey: (bot,cid)=> `vip_${bot}_msgs_${cid}`,
+    getJSON:(k)=>{ try{return JSON.parse(localStorage.getItem(k)||"null");}catch{return null;} },
+    setJSON:(k,v)=>{ try{localStorage.setItem(k, JSON.stringify(v));}catch{} }
+  };
+
+  /* ---------------- app state ---------------- */
+  let currentBot=null;
+  let allChats=[];
+  let activeTab='chats';
+  let activeChatID=null;
+  let activeChatToken=0;      // ✅ prevents old fetch overwrite
+  let msgAbort=null;          // ✅ abort controller
+  let pollInterval=null;
+
+  // unread counters (simple)
+  const unread = new Map();   // chat_id -> count
+  function bumpUnread(chatId){
+    unread.set(chatId, (unread.get(chatId)||0)+1);
+  }
+  function clearUnread(chatId){
+    unread.delete(chatId);
+  }
+
+  /* ---------------- splash boot ---------------- */
+  window.onload = async ()=>{
+    // show splash exactly ~3s
+    await sleep(3000);
+
+    document.getElementById('splash').style.display='none';
+    document.getElementById('home-view').style.display='block';
+
+    loadSessions();
+  };
+
+  async function loadSessions(){
+    try{
+      const res=await fetch('/api/sessions');
+      const sessions=await res.json();
+
+      const box=document.getElementById('session-list');
+      box.innerHTML='';
+
+      sessions.forEach(num=>{
+        box.innerHTML += `
+          <div class="session-card" onclick="startApp('${num}')">
+            <div class="live-dot"></div>
+            <div class="session-ico">📱</div>
+            <div class="session-info">
+              <div class="session-num">${num}</div>
+              <div class="session-meta">Tap to open chats</div>
+            </div>
+          </div>
+        `;
+      });
+
+      if(!sessions.length){
+        box.innerHTML = `<div style="color:var(--muted); text-align:center; padding:30px;">No sessions found</div>`;
       }
     }catch(e){
-      btn.innerText = "⬇";
-      showBanner("❌ Failed to download audio");
+      showToast("Failed to load sessions");
     }
-  }else{
-    audio.paused ? audio.play() : audio.pause();
   }
-}
 
-async function downloadVideo(uid, overlayID){
-  try{
-    const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
-    const d = await r.json();
-    if(d && d.content){
-      // replace overlay with player
-      const ov = document.getElementById(overlayID);
-      if(ov && ov.parentElement){
-        ov.parentElement.innerHTML = `<video src="${d.content}" style="width:100%;border-radius:10px;display:block;" controls autoplay></video>`;
+  async function startApp(id){
+    currentBot=id;
+    document.getElementById('home-view').style.display='none';
+    document.getElementById('app-view').style.display='block';
+    document.getElementById('active-bot-pill').innerText = `BOT: ${id}`;
+    document.getElementById('hdr-sub').innerText = "Syncing…";
+
+    // show cached list instantly (if exists)
+    const cached = LS.getJSON(LS.chatsKey(currentBot, activeTab));
+    if(cached && Array.isArray(cached)){
+      allChats = cached;
+      renderList();
+    }
+
+    await loadChats(true);
+    document.getElementById('hdr-sub').innerText = "Connected";
+  }
+
+  async function loadChats(isFirst=false){
+    try{
+      const res=await fetch(`/api/chats?bot_id=${encodeURIComponent(currentBot)}`);
+      const data=await res.json();
+      allChats = Array.isArray(data) ? data : [];
+      LS.setJSON(LS.chatsKey(currentBot, 'chats'), allChats);
+      LS.setJSON(LS.chatsKey(currentBot, 'groups'), allChats);
+      LS.setJSON(LS.chatsKey(currentBot, 'status'), allChats);
+      renderList();
+    }catch(e){
+      if(isFirst) showToast("Failed to load chats");
+    }
+  }
+
+  function switchTab(t, ev){
+    activeTab=t;
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    const btn = ev?.currentTarget || document.querySelector(`.tab-btn[data-tab="${t}"]`);
+    if(btn) btn.classList.add('active');
+    renderList();
+  }
+
+  function renderList(){
+    const list=document.getElementById('chat-list-box');
+    list.innerHTML='';
+
+    let filtered = allChats.filter(c=>{
+      // NOTE: backend sends c.type = 'group' or 'user' (your existing logic)
+      if(activeTab==='groups') return c.type==='group';
+      if(activeTab==='status') return c.type==='status' || isStatusJid(c.id);
+      return c.type==='user';
+    });
+
+    filtered.forEach(c=>{
+      const jid = c.id || "";
+      const number = cleanNumber(jid); // ✅ hide LID, show number
+      const aid=`av_${(jid||'').replace(/[^a-zA-Z0-9]/g,'')}`;
+
+      const cnt = unread.get(jid) || 0;
+
+      list.innerHTML += `
+        <div class="chat-item" onclick="openChat('${jid}','${(c.name||number||'User').replace(/'/g,"\\'")}','${aid}')">
+          <img id="${aid}" class="avatar" src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name||number||'U')}&background=random" />
+          <div class="chat-mid">
+            <div class="chat-name">${c.name || number || 'Unknown'}</div>
+            <div class="chat-num">${number || jid}</div>
+          </div>
+          <div class="chat-right">
+            <div class="small-time"></div>
+            ${cnt ? `<div class="unread-dot">${cnt}</div>` : ``}
+          </div>
+        </div>
+      `;
+
+      // try avatar (optional)
+      fetch(`/api/avatar?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(jid)}`)
+        .then(r=>r.json())
+        .then(d=>{ if(d.url) document.getElementById(aid).src=d.url; })
+        .catch(()=>{});
+    });
+
+    if(!filtered.length){
+      list.innerHTML = `<div style="color:var(--muted); text-align:center; padding:30px;">Nothing here</div>`;
+    }
+  }
+
+  /* ---------------- chat open / close ---------------- */
+  function closeChat(){
+    // stop polling + abort inflight
+    if(pollInterval) clearInterval(pollInterval);
+    pollInterval=null;
+
+    if(msgAbort){ try{ msgAbort.abort(); }catch{} }
+    msgAbort=null;
+
+    activeChatID=null;
+    document.getElementById('chat-window').classList.remove('show');
+  }
+
+  function showInfo(){
+    if(!activeChatID) return;
+    const num = cleanNumber(activeChatID);
+    showToast(`Info: ${num || activeChatID}`);
+  }
+
+  async function openChat(cid,name,aid){
+    // ✅ abort previous immediately
+    if(msgAbort){ try{ msgAbort.abort(); }catch{} }
+    msgAbort = new AbortController();
+
+    activeChatID = cid;
+    activeChatToken++;
+    const token = activeChatToken;
+
+    clearUnread(cid); // opened => clear unread
+    renderList();     // refresh dots
+
+    // header
+    document.getElementById('header-name').innerText = name;
+    document.getElementById('header-sub').innerText = cleanNumber(cid) || cid;
+    const src=document.getElementById(aid)?.src || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}`;
+    document.getElementById('header-avatar').src = src;
+
+    const win=document.getElementById('chat-window');
+    win.classList.add('show');
+
+    const box=document.getElementById('msg-box');
+    box.innerHTML = `
+      <div style="padding:22px; display:flex; align-items:center; gap:14px; justify-content:center;">
+        <div style="width:12px;height:12px;border-radius:50%;background:var(--primary); box-shadow:0 0 0 8px rgba(0,168,132,.12); animation:pulse 1.5s ease-in-out infinite;"></div>
+        <div style="color:rgba(233,237,239,.85); font-weight:800;">Loading messages…</div>
+      </div>
+    `;
+
+    // ✅ instant render from LocalStorage cache (if exists)
+    const cachedMsgs = LS.getJSON(LS.msgsKey(currentBot, cid));
+    if(cachedMsgs && Array.isArray(cachedMsgs) && cachedMsgs.length){
+      renderMessages(box, cachedMsgs, token, {fromCache:true});
+      // background refresh
+      loadMessages(cid, token, {background:true});
+    }else{
+      await loadMessages(cid, token, {background:false});
+    }
+
+    // polling live (every 4s)
+    if(pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(()=> loadMessages(cid, token, {background:true}), 4000);
+  }
+
+  /* ---------------- messages render + paging (client-side) ---------------- */
+  // store full list in memory per open chat
+  let fullMsgs = [];
+  let visibleCount = 120; // show last 120 initially (near your "last 100/200" request)
+
+  function renderMessages(container, msgs, token, opts={}){
+    if(token !== activeChatToken) return;
+    if(activeChatID==null) return;
+
+    // cache full list
+    fullMsgs = msgs;
+
+    // show last N only
+    const start = Math.max(0, msgs.length - visibleCount);
+    const slice = msgs.slice(start);
+
+    container.innerHTML = '';
+
+    // load more button if older exists
+    if(start > 0){
+      const lm = document.createElement('div');
+      lm.className='load-more';
+      lm.innerHTML = `<button onclick="loadMore()">Load more</button>`;
+      container.appendChild(lm);
+    }
+
+    slice.forEach(m=>{
+      const row=document.createElement('div');
+      row.className='msg-row';
+
+      const isMe=!!m.is_from_me;
+      const bubble=document.createElement('div');
+      bubble.className = `msg ${isMe?'sent':'recv'}`;
+
+      // sender name in groups (but show clean number)
+      if(!isMe && m.is_group){
+        const sn=document.createElement('div');
+        sn.className='sender-name';
+        sn.innerText = (m.sender_name || cleanNumber(m.sender) || cleanNumber(m.chat_id) || "User");
+        bubble.appendChild(sn);
       }
-      showToast(`<b>Downloaded</b> video`, activeChatID);
-    }
-  }catch(e){
-    showBanner("❌ Failed to download video");
-  }
-}
 
-async function downloadFile(uid){
-  try{
-    const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
-    const d = await r.json();
-    if(d && d.content){
-      // open in new tab (if url)
-      if(String(d.content).startsWith("http")){
-        window.open(d.content, "_blank");
+      // reply
+      if(m.quoted_msg){
+        const rb=document.createElement('div');
+        rb.className='reply-box';
+        const qs = cleanNumber(m.quoted_sender || "") || (m.quoted_sender || "Unknown");
+        rb.innerHTML = `<div class="reply-sender">${qs}</div><div class="reply-text">${escapeHTML(m.quoted_msg)}</div>`;
+        bubble.appendChild(rb);
+      }
+
+      // content
+      const contentNode = document.createElement('div');
+
+      if(m.is_sticker){
+        // sticker as image
+        contentNode.innerHTML = renderMediaPlaceholderOrImg(m, "sticker");
+      }else if(m.type==='text'){
+        contentNode.innerHTML = escapeHTML(m.content||"");
+      }else if(m.type==='image'){
+        contentNode.innerHTML = renderMediaPlaceholderOrImg(m, "image");
+      }else if(m.type==='video'){
+        contentNode.innerHTML = renderVideo(m);
+      }else if(m.type==='audio'){
+        contentNode.innerHTML = renderAudio(m);
       }else{
-        // base64 file: open
-        window.open(d.content, "_blank");
+        // file
+        contentNode.innerHTML = `<a href="${escapeAttr(m.content||'#')}" target="_blank" style="color:var(--primary2); font-weight:800;">📄 Download</a>`;
       }
-      showToast(`<b>Downloaded</b> file`, activeChatID);
+
+      bubble.appendChild(contentNode);
+
+      // time
+      const t = m.timestamp ? new Date(m.timestamp) : new Date();
+      const time = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      const timeEl=document.createElement('div');
+      timeEl.className='time';
+      timeEl.innerText = time;
+      bubble.appendChild(timeEl);
+
+      row.appendChild(bubble);
+      container.appendChild(row);
+    });
+
+    // scroll to bottom only if NOT background update
+    if(!opts.background){
+      container.scrollTop = container.scrollHeight;
     }
-  }catch(e){
-    showBanner("❌ Failed to download file");
   }
-}
 
-function setupAudio(uid, src){
-  const wrap = document.getElementById(`aud-${uid}`);
-  if(!wrap) return;
-  wrap.innerHTML = `<audio src="${src}" controls style="height:32px; width:100%; filter:invert(.92);"></audio>`;
-}
+  function loadMore(){
+    visibleCount += 120;
+    const box=document.getElementById('msg-box');
+    renderMessages(box, fullMsgs, activeChatToken, {background:true});
+    // keep scroll around top-ish (simple)
+    box.scrollTop = 80;
+  }
 
-function showLightbox(src){
-  document.getElementById('lb-img').src = src;
-  document.getElementById('lightbox').style.display = 'flex';
-}
+  function escapeHTML(s){
+    return (s||"")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+  function escapeAttr(s){ return escapeHTML(s); }
 
-/* ---------------- Info panel placeholder ---------------- */
-function showInfo(){
-  // ابھی simple — بعد میں profile/api سے details لے لیں گے
-  showToast(`Info: <b>${escapeHTML(activeChatID || '')}</b>`, activeChatID);
-}
+  /* ---------------- media rendering (placeholder + manual download) ---------------- */
+  function renderMediaPlaceholderOrImg(m, kind){
+    const uid = m.message_id;
+    const isWaiting = (m.content === 'MEDIA_WAITING' || !m.content);
 
-/* ---------------- Background unread updates (simple) ----------------
-   ابھی backend میں global push نہیں ہے، تو ہم lightweight polling کرتے ہیں:
-   - open chat کیلئے already polling
-   - chat list کیلئے 10s میں refresh chats (اور اگر cached messages میں new آئے تو unread بڑھا دیں)
-*/
-setInterval(async () => {
-  if(!currentBot) return;
-  if(activeChatID) return; // open chat already syncing
-  // refresh chats silently
-  await loadChatsFromServer();
-}, 10000);
+    if(!uid) return `<div style="color:var(--muted)">media</div>`;
+
+    if(isWaiting){
+      // ✅ show placeholder with download icon like WhatsApp
+      return `
+        <div class="media-wrap">
+          <div class="media-placeholder">
+            <div class="media-btn" onclick="downloadMedia('${uid}', 'img-${uid}', '${kind}')">⬇</div>
+          </div>
+          <img id="img-${uid}" class="chat-img" style="display:none" onclick="showLightbox(this.src)"/>
+        </div>
+      `;
+    }
+
+    // already has direct content (base64 or url)
+    const cls = (kind==='sticker') ? `style="width:140px;height:auto;object-fit:contain;border-radius:10px"` : ``;
+    return `
+      <div class="media-wrap">
+        <img class="chat-img" ${cls} src="${escapeAttr(m.content)}" onclick="showLightbox(this.src)"/>
+      </div>
+    `;
+  }
+
+  function renderVideo(m){
+    const uid=m.message_id;
+    const isWaiting = (m.content === 'MEDIA_WAITING' || !m.content);
+
+    if(isWaiting){
+      return `
+        <div class="media-wrap">
+          <div class="media-placeholder" style="height:190px;">
+            <div class="media-btn" onclick="downloadMedia('${uid}', 'vid-${uid}', 'video')">⬇</div>
+          </div>
+          <video id="vid-${uid}" style="display:none; width:100%; border-radius:10px;" controls></video>
+        </div>
+      `;
+    }
+    return `
+      <div class="media-wrap">
+        <video src="${escapeAttr(m.content)}" style="width:100%; border-radius:10px;" controls></video>
+      </div>
+    `;
+  }
+
+  function renderAudio(m){
+    const uid=m.message_id;
+    const isWaiting = (m.content === 'MEDIA_WAITING' || !m.content);
+
+    if(isWaiting){
+      return `
+        <div class="wa-audio" id="aud-wrap-${uid}">
+          <div class="btn" onclick="downloadAudio('${uid}')">⬇</div>
+          <div class="meta">
+            <div style="font-weight:900; font-size:12px;">Voice message</div>
+            <div class="bar"><i id="aud-bar-${uid}"></i></div>
+          </div>
+          <audio id="audio-${uid}"></audio>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="wa-audio">
+        <audio src="${escapeAttr(m.content)}" controls style="width:100%; height:32px; filter:invert(.92);"></audio>
+      </div>
+    `;
+  }
+
+  async function downloadMedia(uid, elId, kind){
+    try{
+      // try local cache first
+      getLocal(uid, async (data)=>{
+        if(data){
+          applyDownloadedMedia(uid, elId, kind, data);
+          return;
+        }
+        const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
+        if(!r.ok) throw new Error("media download failed");
+        const d = await r.json();
+        if(d?.content){
+          saveLocal(uid, d.content);
+          applyDownloadedMedia(uid, elId, kind, d.content);
+        }else{
+          throw new Error("media empty");
+        }
+      });
+    }catch(e){
+      showToast("Failed to download media");
+    }
+  }
+
+  function applyDownloadedMedia(uid, elId, kind, content){
+    if(kind==='video'){
+      const v = document.getElementById(elId);
+      if(!v) return;
+      v.src = content;
+      v.style.display='block';
+      // hide placeholder: previous sibling (simpler: keep)
+    }else{
+      const img=document.getElementById(elId);
+      if(!img) return;
+      img.src = content;
+      img.style.display='block';
+    }
+
+    // also update message in cache (so next time not waiting)
+    const k = LS.msgsKey(currentBot, activeChatID);
+    const cached = LS.getJSON(k) || [];
+    const idx = cached.findIndex(x=>x.message_id===uid);
+    if(idx>=0){
+      cached[idx].content = content;
+      LS.setJSON(k, cached);
+    }
+  }
+
+  async function downloadAudio(uid){
+    try{
+      // local first
+      getLocal(uid, async (data)=>{
+        if(data){
+          setupAudio(uid, data);
+          return;
+        }
+        const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
+        if(!r.ok) throw new Error("audio download failed");
+        const d = await r.json();
+        if(d?.content){
+          saveLocal(uid, d.content);
+          setupAudio(uid, d.content);
+        }else{
+          throw new Error("audio empty");
+        }
+      });
+    }catch(e){
+      showToast("Failed to download audio");
+    }
+  }
+
+  function setupAudio(uid, src){
+    const wrap=document.getElementById(`aud-wrap-${uid}`);
+    const audio=document.getElementById(`audio-${uid}`);
+    if(!wrap || !audio) return;
+
+    audio.src = src;
+
+    // Replace button with play/pause
+    wrap.querySelector('.btn').innerText = '▶';
+
+    wrap.querySelector('.btn').onclick = ()=>{
+      if(audio.paused) audio.play(); else audio.pause();
+      wrap.querySelector('.btn').innerText = audio.paused ? '▶' : '⏸';
+    };
+
+    // basic progress
+    const bar = document.getElementById(`aud-bar-${uid}`);
+    audio.ontimeupdate = ()=>{
+      if(!bar || !audio.duration) return;
+      const p = (audio.currentTime / audio.duration) * 100;
+      bar.style.width = p.toFixed(2) + '%';
+    };
+  }
+
+  function showLightbox(src){
+    document.getElementById('lb-img').src=src;
+    document.getElementById('lightbox').style.display='flex';
+  }
+  function closeLightbox(){
+    document.getElementById('lightbox').style.display='none';
+  }
+
+  /* ---------------- load messages (server) ---------------- */
+  async function loadMessages(cid, token, opts={background:false}){
+    try{
+      if(token !== activeChatToken) return;
+      if(activeChatID !== cid) return;
+
+      const box=document.getElementById('msg-box');
+
+      // optional paging params (backend can ignore)
+      const limit = 200;
+      const url = `/api/messages?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(cid)}&limit=${limit}`;
+
+      const res = await fetch(url, { signal: msgAbort?.signal });
+      if(!res.ok) throw new Error("messages failed");
+      const msgs = await res.json();
+      if(token !== activeChatToken) return;
+      if(activeChatID !== cid) return;
+
+      // Save to localStorage for instant reopen
+      if(Array.isArray(msgs)){
+        LS.setJSON(LS.msgsKey(currentBot, cid), msgs);
+      }
+
+      // detect new messages to bump unread in list (only if background)
+      if(opts.background){
+        const old = fullMsgs || [];
+        const oldLast = old.length ? old[old.length-1]?.message_id : null;
+        const newLast = msgs.length ? msgs[msgs.length-1]?.message_id : null;
+        if(newLast && oldLast && newLast !== oldLast){
+          // if chat is open we don’t unread, but we can “live update” immediately
+        }
+      }
+
+      renderMessages(box, Array.isArray(msgs)?msgs:[], token, {background:opts.background});
+    }catch(e){
+      // ignore abort errors
+      if(String(e).toLowerCase().includes("abort")) return;
+      if(!opts.background) showToast("Failed to load messages");
+    }
+  }
 
 </script>
-
 </body>
 </html>
