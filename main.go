@@ -1217,36 +1217,129 @@ type ChatItemV2 struct {
 }
 
 func handleGetChats(w http.ResponseWriter, r *http.Request) {
-	botID := r.URL.Query().Get("bot_id")
-	if botID == "" {
-		http.Error(w, "bot_id required", 400)
+	if chatHistoryCollection == nil {
+		http.Error(w, "MongoDB not connected", http.StatusInternalServerError)
 		return
 	}
 
-	// NOTE: یہاں تمہارا existing logic ہوگا جو chats نکالتا ہے
-	// میں فرض کر رہا ہوں تم ایک slice بنا کے return کرتے ہو:
-	// type ChatItem struct { ID, Name, Type string }
-
-	chats := getChatsFromYourStore(botID) // 👈 اپنی موجودہ function/logic رکھو
-
-	// ✅ Canonical + Deduplicate
-	seen := make(map[string]bool)
-	out := make([]ChatItem, 0, len(chats))
-
-	for _, c := range chats {
-		cid := canonicalChatID(c.ID) // ✅ LID => JID, device => removed
-
-		if cid == "" {
-			continue
-		}
-		if seen[cid] {
-			continue
-		}
-		seen[cid] = true
-
-		c.ID = cid
-		out = append(out, c)
+	botID := r.URL.Query().Get("bot_id")
+	if botID == "" {
+		http.Error(w, "bot_id required", http.StatusBadRequest)
+		return
 	}
+
+	// Aggregate chats from messages (latest activity + last sender_name)
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"bot_id":  botID,
+			"chat_id": bson.M{"$ne": ""},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "timestamp", Value: 1}}}}, // asc so $last works
+		{{Key: "$group", Value: bson.M{
+			"_id":     "$chat_id",
+			"last_ts": bson.M{"$last": "$timestamp"},
+			"name":    bson.M{"$last": "$sender_name"},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "last_ts", Value: -1}}}},
+		{{Key: "$limit", Value: 5000}},
+	}
+
+	cur, err := chatHistoryCollection.Aggregate(ctx, pipeline)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cur.Close(ctx)
+
+	type row struct {
+		ChatID string    `bson:"_id"`
+		LastTS time.Time `bson:"last_ts"`
+		Name   string    `bson:"name"`
+	}
+
+	// Merge LID + JID into one canonical chat id
+	type agg struct {
+		ChatID string
+		Name   string
+		LastTS time.Time
+	}
+
+	merged := make(map[string]*agg)
+
+	for cur.Next(ctx) {
+		var it row
+		if err := cur.Decode(&it); err != nil {
+			continue
+		}
+
+		origID := strings.TrimSpace(it.ChatID)
+		if origID == "" {
+			continue
+		}
+
+		canon := canonicalChatID(origID)
+
+		// pick best display name
+		name := strings.TrimSpace(it.Name)
+		if name == "" {
+			// fallback to number part
+			left := canon
+			if strings.Contains(left, "@") {
+				left = strings.Split(left, "@")[0]
+			}
+			if strings.Contains(left, ":") {
+				left = strings.Split(left, ":")[0]
+			}
+			name = left
+		}
+
+		// If already exists, keep the newest timestamp
+		ex, ok := merged[canon]
+		if !ok {
+			merged[canon] = &agg{
+				ChatID: canon,
+				Name:   name,
+				LastTS: it.LastTS,
+			}
+			continue
+		}
+
+		// prefer newer ts
+		if it.LastTS.After(ex.LastTS) {
+			ex.LastTS = it.LastTS
+		}
+
+		// prefer "better" name (non-empty and not just number)
+		if ex.Name == "" || ex.Name == strings.Split(ex.ChatID, "@")[0] {
+			ex.Name = name
+		}
+	}
+
+	// Build response list
+	out := make([]ChatItem, 0, len(merged))
+	for _, v := range merged {
+		t := "user"
+		if strings.Contains(v.ChatID, "@g.us") {
+			t = "group"
+		}
+		// (optional) skip status chat record if it appears as normal chat
+		// if strings.Contains(v.ChatID, "status@broadcast") { continue }
+
+		out = append(out, ChatItem{
+			ID:   v.ChatID,
+			Name: v.Name,
+			Type: t,
+		})
+	}
+
+	// sort again by last activity desc (because map order is random)
+	sort.Slice(out, func(i, j int) bool {
+		// re-fetch timestamps from merged map
+		return merged[out[i].ID].LastTS.After(merged[out[j].ID].LastTS)
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
