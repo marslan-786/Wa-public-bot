@@ -1217,130 +1217,35 @@ type ChatItemV2 struct {
 }
 
 func handleGetChats(w http.ResponseWriter, r *http.Request) {
-	if chatHistoryCollection == nil {
-		http.Error(w, "MongoDB not connected", 500)
-		return
-	}
-
 	botID := r.URL.Query().Get("bot_id")
 	if botID == "" {
-		http.Error(w, "Bot ID required", 400)
+		http.Error(w, "bot_id required", 400)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// NOTE: یہاں تمہارا existing logic ہوگا جو chats نکالتا ہے
+	// میں فرض کر رہا ہوں تم ایک slice بنا کے return کرتے ہو:
+	// type ChatItem struct { ID, Name, Type string }
 
-	// pipeline: match -> sort desc -> group by chat_id taking first (latest) -> sort by last timestamp
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{"bot_id": botID}}},
-		{{Key: "$sort", Value: bson.D{{Key: "timestamp", Value: -1}, {Key: "message_id", Value: -1}}}},
-		{{Key: "$group", Value: bson.M{
-			"_id":         "$chat_id",
-			"last_type":   bson.M{"$first": "$type"},
-			"last_content": bson.M{"$first": "$content"},
-			"last_time":   bson.M{"$first": "$timestamp"},
-			"sender_name": bson.M{"$first": "$sender_name"},
-		}}},
-		{{Key: "$sort", Value: bson.D{{Key: "last_time", Value: -1}}}},
-		{{Key: "$limit", Value: 500}},
-	}
+	chats := getChatsFromYourStore(botID) // 👈 اپنی موجودہ function/logic رکھو
 
-	cur, err := chatHistoryCollection.Aggregate(ctx, pipeline)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	defer cur.Close(ctx)
+	// ✅ Canonical + Deduplicate
+	seen := make(map[string]bool)
+	out := make([]ChatItem, 0, len(chats))
 
-	type row struct {
-		ChatID      string    `bson:"_id"`
-		LastType    string    `bson:"last_type"`
-		LastContent string    `bson:"last_content"`
-		LastTime    time.Time `bson:"last_time"`
-		SenderName  string    `bson:"sender_name"`
-	}
+	for _, c := range chats {
+		cid := canonicalChatID(c.ID) // ✅ LID => JID, device => removed
 
-	var rows []row
-	if err := cur.All(ctx, &rows); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-
-	clientsMutex.RLock()
-	botClient, isConnected := activeClients[botID]
-	clientsMutex.RUnlock()
-
-	out := make([]ChatItemV2, 0, len(rows))
-
-	for _, it := range rows {
-		chatID := it.ChatID
-		chatType := "user"
-		if strings.Contains(chatID, "@g.us") {
-			chatType = "group"
-		} else if strings.Contains(chatID, "@newsletter") {
-			chatType = "channel"
+		if cid == "" {
+			continue
 		}
-
-		// Preview (don't send full base64)
-		preview := it.LastContent
-		if preview == "MEDIA_WAITING" || it.LastType != "text" {
-			switch it.LastType {
-			case "image":
-				preview = "📷 Photo"
-			case "video":
-				preview = "🎥 Video"
-			case "audio":
-				preview = "🎤 Voice"
-			case "file":
-				preview = "📄 File"
-			default:
-				preview = "📎 Media"
-			}
-		} else if len(preview) > 60 {
-			preview = preview[:60] + "…"
+		if seen[cid] {
+			continue
 		}
+		seen[cid] = true
 
-		name := ""
-		if isConnected && botClient != nil {
-			jid, _ := types.ParseJID(chatID)
-
-			if chatType == "group" {
-				if grp, err := botClient.GetGroupInfo(context.Background(), jid); err == nil {
-					name = grp.Name
-				}
-			} else {
-				if contact, err := botClient.Store.Contacts.GetContact(context.Background(), jid); err == nil && contact.Found {
-					name = contact.FullName
-					if name == "" {
-						name = contact.PushName
-					}
-				}
-			}
-		}
-		if name == "" {
-			if it.SenderName != "" {
-				name = it.SenderName
-			}
-		}
-		if name == "" {
-			if chatType == "group" {
-				name = "Unknown Group"
-			} else if chatType == "channel" {
-				name = "Unknown Channel"
-			} else {
-				name = "+" + strings.Split(chatID, "@")[0]
-			}
-		}
-
-		out = append(out, ChatItemV2{
-			ID:          chatID,
-			Name:        name,
-			Type:        chatType,
-			LastType:    it.LastType,
-			LastPreview: preview,
-			LastTime:    it.LastTime,
-		})
+		c.ID = cid
+		out = append(out, c)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1361,51 +1266,31 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 100
+	limit := int64(200)
 	if s := r.URL.Query().Get("limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
-			if n < 1 {
-				n = 1
-			}
-			if n > 200 {
-				n = 200
-			}
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 && n <= 500 {
 			limit = n
 		}
 	}
 
-	// Cursor: before="<unix>|<message_id>"
-	before := r.URL.Query().Get("before")
+	// ✅ very important: accept both ids
+	canon := canonicalChatID(chatID)
+	ids := []string{chatID}
+	if canon != "" && canon != chatID {
+		ids = append(ids, canon)
+	}
 
 	filter := bson.M{
 		"bot_id":  botID,
-		"chat_id": chatID,
+		"chat_id": bson.M{"$in": ids},
 	}
 
-	if before != "" {
-		parts := strings.SplitN(before, "|", 2)
-		if len(parts) == 2 {
-			beforeTsUnix, err := strconv.ParseInt(parts[0], 10, 64)
-			if err == nil {
-				beforeID := parts[1]
-				beforeTime := time.Unix(beforeTsUnix, 0)
-
-				filter["$or"] = []bson.M{
-					{"timestamp": bson.M{"$lt": beforeTime}},
-					{"timestamp": beforeTime, "message_id": bson.M{"$lt": beforeID}},
-				}
-			}
-		}
-	}
-
+	// ✅ fetch last N (DESC), then reverse to ASC for UI
 	opts := options.Find().
-		SetSort(bson.D{
-			{Key: "timestamp", Value: -1},
-			{Key: "message_id", Value: -1},
-		}).
-		SetLimit(int64(limit))
+		SetSort(bson.D{{Key: "timestamp", Value: -1}}).
+		SetLimit(limit)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	cursor, err := chatHistoryCollection.Find(ctx, filter, opts)
@@ -1413,32 +1298,20 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	defer cursor.Close(ctx)
 
-	var items []ChatMessage
-	if err := cursor.All(ctx, &items); err != nil {
+	var messages []ChatMessage
+	if err = cursor.All(ctx, &messages); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	// reverse so frontend can render in natural order
-	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
-		items[i], items[j] = items[j], items[i]
-	}
-
-	nextBefore := ""
-	if len(items) > 0 {
-		oldest := items[0]
-		nextBefore = fmt.Sprintf("%d|%s", oldest.Timestamp.Unix(), oldest.MessageID)
+	// reverse to old->new
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":      "ok",
-		"count":       len(items),
-		"next_before": nextBefore,
-		"messages":    items,
-	})
+	_ = json.NewEncoder(w).Encode(messages)
 }
 
 func ensureMongoIndexes(db *mongo.Database) error {
