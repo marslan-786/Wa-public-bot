@@ -192,10 +192,13 @@ func main() {
 	http.HandleFunc("/del/", handleDelNumberAPI)
 
 	// 🔥 WEB VIEW & CHAT HISTORY APIS 🔥
-	http.HandleFunc("/lists", serveListsHTML)
-	http.HandleFunc("/api/sessions", handleGetSessions)
-	http.HandleFunc("/api/chats", handleGetChats)       // Updated Function
-	http.HandleFunc("/api/messages", handleGetMessages) // Updated Function
+// 🔥 WEB VIEW APIS
+    http.HandleFunc("/lists", serveListsHTML)
+    http.HandleFunc("/api/sessions", handleGetSessions)
+    http.HandleFunc("/api/chats", handleGetChats)       // 👈 This will be updated
+    http.HandleFunc("/api/messages", handleGetMessages)
+    http.HandleFunc("/api/media", handleGetMedia)
+    http.HandleFunc("/api/avatar", handleGetAvatar)     // ✅ NEW: Profile Pic API
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -816,32 +819,56 @@ func handleGetChats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(chats)
 }
 
+// 4. Get Messages (Lightweight - No Base64)
 func handleGetMessages(w http.ResponseWriter, r *http.Request) {
-	if chatHistoryCollection == nil {
-		http.Error(w, "MongoDB not connected", 500)
-		return
-	}
+	if chatHistoryCollection == nil { http.Error(w, "MongoDB not connected", 500); return }
 	botID := r.URL.Query().Get("bot_id")
 	chatID := r.URL.Query().Get("chat_id")
 
 	filter := bson.M{"bot_id": botID, "chat_id": chatID}
 	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
 
-	// ✅ FIX: Using chatHistoryCollection
 	cursor, err := chatHistoryCollection.Find(context.Background(), filter, opts)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
+	if err != nil { http.Error(w, err.Error(), 500); return }
 
 	var messages []ChatMessage
 	if err = cursor.All(context.Background(), &messages); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+		http.Error(w, err.Error(), 500); return
+	}
+
+	// 🚀 OPTIMIZATION: Strip Base64 Data
+	for i := range messages {
+		// اگر ڈیٹا Base64 ہے (یعنی بہت بڑا ہے)، تو اسے لسٹ میں مت بھیجو
+		if len(messages[i].Content) > 500 && strings.HasPrefix(messages[i].Content, "data:") {
+			messages[i].Content = "MEDIA_WAITING" // Placeholder Flag
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(messages)
+}
+
+// 5. Get Single Media (Full Content) ✅ NEW
+func handleGetMedia(w http.ResponseWriter, r *http.Request) {
+	if chatHistoryCollection == nil { http.Error(w, "MongoDB not connected", 500); return }
+	
+	msgID := r.URL.Query().Get("msg_id")
+	if msgID == "" { http.Error(w, "Message ID required", 400); return }
+
+	// صرف ایک میسج ڈھونڈیں
+	filter := bson.M{"message_id": msgID}
+	var msg ChatMessage
+	err := chatHistoryCollection.FindOne(context.Background(), filter).Decode(&msg)
+	if err != nil {
+		http.Error(w, "Media not found", 404)
+		return
+	}
+
+	// صرف کانٹینٹ واپس بھیجیں
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"content": msg.Content,
+	})
 }
 
 // 🐱 CATBOX UPLOAD FUNCTION (یہ غائب تھا)
@@ -965,4 +992,108 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 	if err != nil {
 		fmt.Printf("❌ Mongo Save Error: %v\n", err)
 	}
+}
+
+// 📦 Chat Item Structure
+type ChatItem struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"` // group, channel, user
+}
+
+// 3. Get Chats (Updated: Fetches Names & Types)
+func handleGetChats(w http.ResponseWriter, r *http.Request) {
+	if chatHistoryCollection == nil { http.Error(w, "MongoDB not connected", 500); return }
+	botID := r.URL.Query().Get("bot_id")
+	if botID == "" { http.Error(w, "Bot ID required", 400); return }
+
+	// 1. Get Distinct IDs from Mongo
+	filter := bson.M{"bot_id": botID}
+	rawChats, err := chatHistoryCollection.Distinct(context.Background(), "chat_id", filter)
+	if err != nil { http.Error(w, err.Error(), 500); return }
+
+	// 2. Get Active Client for Name Lookup
+	clientsMutex.RLock()
+	client, isConnected := activeClients[botID]
+	clientsMutex.RUnlock()
+
+	var chatList []ChatItem
+
+	for _, raw := range rawChats {
+		chatID := raw.(string)
+		cleanName := ""
+		chatType := "user"
+
+		if strings.Contains(chatID, "@g.us") { chatType = "group" }
+		if strings.Contains(chatID, "@newsletter") { chatType = "channel" }
+
+		// 🕵️ PRIORITY 1: Check WhatsApp Store (Real-time Name)
+		if isConnected && client != nil {
+			jid, _ := types.ParseJID(chatID)
+			if contact, err := client.Store.Contacts.GetContact(jid); err == nil && contact.Found {
+				cleanName = contact.FullName
+				if cleanName == "" { cleanName = contact.PushName }
+				if cleanName == "" { cleanName = contact.Name } // Sometimes just Name
+			}
+		}
+
+		// 🕵️ PRIORITY 2: Check MongoDB (Old saved Name)
+		if cleanName == "" {
+			var lastMsg ChatMessage
+			// Find the most recent message for this chat to get the latest saved name
+			err := chatHistoryCollection.FindOne(context.Background(), 
+				bson.M{"bot_id": botID, "chat_id": chatID}, 
+				options.FindOne().SetSort(bson.D{{Key: "timestamp", Value: -1}})).Decode(&lastMsg)
+			
+			if err == nil && lastMsg.SenderName != "" && lastMsg.SenderName != chatID {
+				cleanName = lastMsg.SenderName
+			}
+		}
+
+		// 🕵️ PRIORITY 3: Fallback to formatted ID
+		if cleanName == "" {
+			cleanName = "+" + strings.Split(chatID, "@")[0]
+		}
+
+		chatList = append(chatList, ChatItem{
+			ID:   chatID,
+			Name: cleanName,
+			Type: chatType,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(chatList)
+}
+
+// 6. Get Profile Picture (New API)
+func handleGetAvatar(w http.ResponseWriter, r *http.Request) {
+	botID := r.URL.Query().Get("bot_id")
+	chatID := r.URL.Query().Get("chat_id")
+
+	clientsMutex.RLock()
+	client, exists := activeClients[botID]
+	clientsMutex.RUnlock()
+
+	if !exists || client == nil {
+		http.Error(w, "Bot not connected", 404)
+		return
+	}
+
+	jid, _ := types.ParseJID(chatID)
+	
+	// Fetch Profile Picture URL
+	pic, err := client.GetProfilePictureInfo(jid, &whatsmeow.GetProfilePictureParams{
+		Preview: true, // Small thumbnail is faster
+	})
+
+	if err != nil || pic == nil {
+		// Return 404 if no picture (Frontend will show default avatar)
+		http.Error(w, "No avatar", 404)
+		return
+	}
+
+	// Return URL
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"url": pic.URL})
 }
