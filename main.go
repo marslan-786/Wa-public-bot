@@ -41,8 +41,8 @@ type ChatMessage struct {
 	SenderName string    `bson:"sender_name" json:"sender_name"`
 	MessageID  string    `bson:"message_id" json:"message_id"`
 	Timestamp  time.Time `bson:"timestamp" json:"timestamp"`
-	Type       string    `bson:"type" json:"type"` // text, image, video, audio
-	Content    string    `bson:"content" json:"content"` // Text or URL
+	Type       string    `bson:"type" json:"type"` 
+	Content    string    `bson:"content" json:"content"`
 	IsFromMe   bool      `bson:"is_from_me" json:"is_from_me"`
 	IsGroup    bool      `bson:"is_group" json:"is_group"`
 	IsChannel  bool      `bson:"is_channel" json:"is_channel"`
@@ -52,7 +52,7 @@ type ChatMessage struct {
 type ChatItem struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-	Type string `json:"type"` // group, channel, user
+	Type string `json:"type"` 
 }
 
 var (
@@ -114,10 +114,33 @@ func loadGlobalSettings() {
 	}
 }
 
+// ✅ 3. Persistent Uptime Loader (MISSING THA)
+func loadPersistentUptime() {
+	if rdb != nil {
+		val, err := rdb.Get(ctx, "total_uptime").Int64()
+		if err == nil {
+			persistentUptime = val
+		}
+	}
+	fmt.Println("⏳ [UPTIME] Persistent uptime loaded from Redis")
+}
+
+// ✅ 4. Persistent Uptime Tracker (MISSING THA)
+func startPersistentUptimeTracker() {
+	ticker := time.NewTicker(1 * time.Minute)
+	go func() {
+		for range ticker.C {
+			persistentUptime += 60
+			if rdb != nil {
+				rdb.Set(ctx, "total_uptime", persistentUptime, 0)
+			}
+		}
+	}()
+}
+
 func main() {
 	fmt.Println("🚀 IMPOSSIBLE BOT | STARTING (POSTGRES ONLY)")
 
-	// 1. Services Start
 	initRedis()
 	loadPersistentUptime()
 	loadGlobalSettings()
@@ -269,14 +292,13 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 	isChannel := strings.Contains(chatID, "@newsletter")
 
 	jid, _ := types.ParseJID(chatID)
-	// ✅ Fixed: Added context.Background()
+	
 	if contact, err := client.Store.Contacts.GetContact(context.Background(), jid); err == nil && contact.Found {
 		senderName = contact.FullName
 		if senderName == "" {
 			senderName = contact.PushName
 		}
 	} else {
-		// ✅ Fixed: Added context.Background()
 		if contact, err := client.Store.Contacts.GetContact(context.Background(), jid); err == nil {
 			senderName = contact.PushName
 		}
@@ -430,6 +452,11 @@ func updatePrefixDB(botID string, newPrefix string) {
 	if err != nil {
 		fmt.Printf("❌ [REDIS ERR] Could not save prefix: %v\n", err)
 	}
+}
+
+// ✅ SetGlobalClient (MISSING THA)
+func SetGlobalClient(c *whatsmeow.Client) {
+	globalClient = c
 }
 
 // ... (Baqi helper functions like serveHTML, servePicture, etc.) ...
