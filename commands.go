@@ -37,6 +37,7 @@ var AuthorizedBots = map[string]bool{
 // ہٹا دیئے گئے ہیں کیونکہ وہ اب صرف main.go میں ایک ہی بار ڈیفائن ہوں گے۔
 
 func handler(botClient *whatsmeow.Client, evt interface{}) {
+	// 🛡️ سیف گارڈ: کریش روکنے کے لیے
 	defer func() {
 		if r := recover(); r != nil {
 			bot := "unknown"
@@ -58,7 +59,9 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 	case *events.Message:
 		isRecent := time.Since(v.Info.Timestamp) < 1*time.Minute
 
-		// 1. Resolve JID (Redis First)
+		// =========================================================
+		// 1. JID RESOLVER (Redis First)
+		// =========================================================
 		realSender := ResolveRealJID(v.Info.Sender)
 		realChat := v.Info.Chat
 		if !v.Info.IsGroup {
@@ -70,7 +73,7 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 			botID = getCleanID(botClient.Store.ID.User)
 		}
 
-		// Save to Mongo
+		// ✅ Save Message to Mongo
 		go func() {
 			saveMessageToMongo(
 				botClient,
@@ -91,39 +94,89 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 			go processMessage(botClient, v)
 		}
 
-	// ✅ جب بوٹ کنیکٹ ہو (ری اسٹارٹ پر)
+	case *events.HistorySync:
+		// ہسٹری سنک سے بھی سیکھیں
+		go func() {
+			if v.Data == nil || len(v.Data.Conversations) == 0 { return }
+			
+			botID := "unknown"
+			if botClient.Store != nil && botClient.Store.ID != nil {
+				botID = getCleanID(botClient.Store.ID.User)
+			}
+
+			for _, conv := range v.Data.Conversations {
+				chatIDStr := ""
+				if conv.ID != nil { chatIDStr = *conv.ID }
+				if chatIDStr == "" { continue }
+
+				isGroup := strings.Contains(chatIDStr, "@g.us")
+				phoneUser := strings.Split(chatIDStr, "@")[0] // ChatID is usually Phone in private
+
+				for _, histMsg := range conv.Messages {
+					webMsg := histMsg.Message
+					if webMsg == nil { continue }
+
+					isFromMe := false
+					if webMsg.Key != nil && webMsg.Key.FromMe != nil { isFromMe = *webMsg.Key.FromMe }
+
+					senderJID := types.EmptyJID
+					if webMsg.Key != nil && webMsg.Key.Participant != nil {
+						senderJID, _ = types.ParseJID(*webMsg.Key.Participant)
+					} else if webMsg.Key != nil && webMsg.Key.RemoteJID != nil {
+						senderJID, _ = types.ParseJID(*webMsg.Key.RemoteJID)
+					}
+
+					// 🧠 LEARN FROM HISTORY
+					if !isGroup && !isFromMe && !senderJID.IsEmpty() {
+						if senderJID.Server == "lid" {
+							rdb.Set(context.Background(), "lid_map:"+senderJID.User, phoneUser, 0)
+						}
+					}
+
+					// Save Logic
+					resolvedSender := ResolveRealJID(senderJID)
+					if isFromMe && botClient.Store != nil && botClient.Store.ID != nil {
+						resolvedSender = *botClient.Store.ID
+					}
+					ts := uint64(0)
+					if webMsg.MessageTimestamp != nil { ts = *webMsg.MessageTimestamp }
+
+					saveMessageToMongo(botClient, botID, chatIDStr, resolvedSender, webMsg.Message, isFromMe, ts)
+				}
+			}
+		}()
+
+	// ✅ ON CONNECT: START SCAN
 	case *events.Connected:
 		if botClient.Store != nil && botClient.Store.ID != nil {
-			fmt.Printf("🟢 [ONLINE] Bot %s connected! Starting LID Scan...\n", botClient.Store.ID.User)
-			// 🔥 LID SCANNER START
+			fmt.Printf("🟢 [ONLINE] Bot %s connected!\n", botClient.Store.ID.User)
 			go SyncLIDMap(botClient)
 		}
-
-	// ✅ جب نیا بوٹ پیئر ہو
+	
+	// ✅ ON PAIR: START SCAN
 	case *events.PairSuccess:
-		fmt.Println("🎉 [PAIR SUCCESS] New Bot! Fetching LIDs from WhatsApp...")
-		// 🔥 LID SCANNER START
+		fmt.Println("🎉 Pair Success! Starting Discovery...")
 		go SyncLIDMap(botClient)
 	}
 }
 
 // =========================================================
-// 🔄 SYNC FUNCTION: ASK WHATSAPP FOR LIDs
+// 🔄 SYNC FUNCTION: ONE-BY-ONE DISCOVERY (The Fix)
 // =========================================================
 func SyncLIDMap(client *whatsmeow.Client) {
-	// تھوڑا انتظار تاکہ کنکشن پکا ہو جائے
-	time.Sleep(3 * time.Second)
+	// تھوڑا انتظار تاکہ کنکشن سیٹل ہو جائے
+	time.Sleep(5 * time.Second)
 
 	fmt.Println("🕵️‍♂️ [LID SYNC] Reading Contacts list...")
 	
-	// 1. تمام کانٹیکٹس (نمبرز) اٹھائیں
+	// 1. تمام کانٹیکٹس حاصل کریں
 	contacts, err := client.Store.Contacts.GetAllContacts(context.Background())
 	if err != nil {
 		fmt.Println("⚠️ Failed to load contacts:", err)
 		return
 	}
 
-	// صرف اصلی نمبرز فلٹر کریں
+	// 2. صرف 's.whatsapp.net' (اصلی نمبرز) الگ کریں
 	var phoneJIDs []types.JID
 	for jid := range contacts {
 		if jid.Server == "s.whatsapp.net" {
@@ -132,68 +185,95 @@ func SyncLIDMap(client *whatsmeow.Client) {
 	}
 
 	total := len(phoneJIDs)
-	fmt.Printf("📋 [LID SYNC] Total Contacts Found: %d. Querying Server...\n", total)
+	fmt.Printf("📋 [LID SYNC] Found %d contacts. Starting precise scan...\n", total)
 
-	// 2. Batch Processing (50 نمبرز ایک ساتھ)
-	batchSize := 50
 	foundCount := 0
+	ctx := context.Background()
 
-	for i := 0; i < total; i += batchSize {
-		end := i + batchSize
-		if end > total { end = total }
-		
-		batch := phoneJIDs[i:end]
-		
-		// 🚀 ASK WHATSAPP: "ان نمبرز کی ڈیوائسز بتاؤ"
-		// یہ فنکشن ڈیوائسز لا کر خود بخود Store میں اپ ڈیٹ کر دیتا ہے
-		_, err := client.GetUserDevices(context.Background(), batch)
-		if err != nil {
-			fmt.Printf("⚠️ Batch Error: %v\n", err)
-			continue
+	// 3. ایک ایک کر کے پوچھیں (Precise Mapping)
+	// بیچ ریکوئسٹ میں میپنگ گڑبڑ ہو سکتی ہے، اس لیے ہم ایک ایک کر کے پوچھیں گے
+	// یہ بیک گراؤنڈ میں چلے گا اس لیے بوٹ کو سلو نہیں کرے گا۔
+	
+	for i, phoneJID := range phoneJIDs {
+		// ہر 20 نمبرز کے بعد لاگ دکھائیں
+		if i > 0 && i%50 == 0 {
+			fmt.Printf("⏳ [SCANNING] Processed %d/%d contacts... (Found: %d)\n", i, total, foundCount)
 		}
 
-		// 3. CHECK & SAVE
-		// اب ہم اپنے لوکل سٹور سے پوچھیں گے کہ کیا LID ملی؟
-		for _, phoneJID := range batch {
-			devices, err := client.Store.DeviceDevices.Get(phoneJID)
-			if err == nil && len(devices) > 0 {
-				for _, dev := range devices {
-					// اگر ڈیوائس LID والی ہے
-					if dev.Server == "lid" {
-						
-						// ✅ PRINT TO CONSOLE (As Requested)
-						fmt.Printf("✅ [FOUND] Phone: %s -> LID: %s (Saving...)\n", phoneJID.User, dev.User)
-						
-						// SAVE TO REDIS
-						rdb.Set(context.Background(), "lid_map:"+dev.User, phoneJID.User, 0)
-						foundCount++
+		// واٹس ایپ سے پوچھیں: "اس اکیلے نمبر کی ڈیوائسز بتاؤ"
+		devices, err := client.GetUserDevices(ctx, []types.JID{phoneJID})
+		if err == nil {
+			for _, dev := range devices {
+				// اگر جواب میں LID ملی
+				if dev.Server == "lid" {
+					// 🎉 JACKPOT!
+					// چونکہ ہم نے صرف 'phoneJID' بھیجا تھا، یہ 'dev' (LID) اسی کی ہے۔
+					
+					rdb.Set(ctx, "lid_map:"+dev.User, phoneJID.User, 0)
+					foundCount++
+					
+					// ڈیبگنگ کے لیے (پہلے 5 دکھائیں)
+					if foundCount <= 5 {
+						fmt.Printf("✅ [LINKED] %s -> %s\n", phoneJID.User, dev.User)
 					}
 				}
 			}
 		}
-		
-		// واٹس ایپ کو ناراض ہونے سے بچانے کے لیے چھوٹا سا وقفہ
-		time.Sleep(1 * time.Second)
+
+		// واٹس ایپ کو ناراض ہونے سے بچانے کے لیے چھوٹا سا وقفہ (0.2 سیکنڈ)
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	fmt.Println("════════════════════════════════════════")
-	fmt.Printf("🏁 [LID SYNC FINISHED] Total LIDs Learned & Saved: %d\n", foundCount)
+	fmt.Printf("🏁 [LID SYNC FINISHED] Successfully mapped %d LIDs!\n", foundCount)
 	fmt.Println("════════════════════════════════════════")
 }
 
-// سادہ ریزالور (جو صرف ریڈیس چیک کرتا ہے)
+// =========================================================
+// 🧩 MASTER RESOLVER
+// =========================================================
 func ResolveRealJID(inputJID types.JID) types.JID {
 	if inputJID.Server == "s.whatsapp.net" { return inputJID }
 	if inputJID.Server != "lid" { return inputJID }
 
+	// REDIS CHECK
 	redisKey := "lid_map:" + inputJID.User
 	val, err := rdb.Get(context.Background(), redisKey).Result()
 	
 	if err == nil && val != "" {
 		return types.NewJID(val, "s.whatsapp.net")
 	}
+
 	return inputJID
 }
+
+// =========================================================
+// 🔍 CHECK COMMAND HANDLER
+// =========================================================
+func handleCheckLID(client *whatsmeow.Client, v *events.Message, args []string) {
+	if len(args) < 1 {
+		replyMessage(client, v, "❌ پلیز LID ساتھ لکھیں۔")
+		return
+	}
+	// کلیننگ
+	raw := args[0]
+	raw = strings.Split(raw, "@")[0]
+	cleanLID := strings.Split(raw, ":")[0]
+
+	res := fmt.Sprintf("🔍 *LID INSPECTION TOOL*\n🆔 Input: `%s`\n\n", cleanLID)
+
+	val, err := rdb.Get(context.Background(), "lid_map:"+cleanLID).Result()
+
+	if err == nil && val != "" {
+		res += fmt.Sprintf("✅ *Real Phone:* `+%s`\n", val)
+		res += "✨ (Fetched from Redis Memory)"
+	} else {
+		res += "❌ *Not found.*\n"
+		res += "شاید Sync ابھی چل رہا ہے یا یہ نمبر کانٹیکٹ لسٹ میں نہیں ہے۔"
+	}
+	replyMessage(client, v, res)
+}
+
 
 func isKnownCommand(text string) bool {
 	commands := []string{
@@ -941,41 +1021,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}()
 }
-// =========================================================
-// 🔍 CHECK COMMAND HANDLER (Separate Function)
-// =========================================================
-func handleCheckLID(client *whatsmeow.Client, v *events.Message, args []string) {
-	if len(args) < 1 {
-		replyMessage(client, v, "❌ پلیز LID ساتھ لکھیں۔")
-		return
-	}
-
-	inputLID := args[0]
-	cleanLID := strings.Split(inputLID, "@")[0]
-	cleanLID = strings.Split(cleanLID, ":")[0]
-	cleanLID = strings.TrimSpace(cleanLID)
-
-	res := "🔍 *LID INSPECTION TOOL*\n"
-	res += fmt.Sprintf("🆔 *Input:* `%s`\n\n", cleanLID)
-
-	// CHECK REDIS
-	redisKey := "lid_map:" + cleanLID
-	val, err := rdb.Get(context.Background(), redisKey).Result()
-
-	if err == nil && val != "" {
-		res += "✅ *Found in REDIS!* ⚡\n"
-		res += fmt.Sprintf("📞 *Real Phone:* `+%s`\n", val)
-	} else {
-		res += "❌ *Not found in Cache.*\n"
-		res += "بوٹ کو اس یوزر سے کم از کم ایک بار پرائیویٹ میسج موصول ہونا ضروری ہے۔"
-	}
-
-	replyMessage(client, v, res)
-}
-
-
-
-// 🚀 ہیلپرز اور اسپیڈ آپٹیمائزڈ فنکشنز
 
 func getPrefix(botID string) string {
 	prefixMutex.RLock()
