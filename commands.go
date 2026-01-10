@@ -86,6 +86,12 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 
 			// ہسٹری کے میسجز کو لوپ کر کے مونگو میں ڈالیں
 			for _, conv := range v.Data.Conversations {
+				// ✅ FIX: conv.ID ایک پوائنٹر ہے، اسے محفوظ طریقے سے سٹرنگ میں تبدیل کریں
+				chatID := ""
+				if conv.ID != nil {
+					chatID = *conv.ID
+				}
+
 				for _, histMsg := range conv.Messages {
 					webMsg := histMsg.Message
 					if webMsg == nil || webMsg.Message == nil {
@@ -103,8 +109,8 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 						ts = *webMsg.MessageTimestamp
 					}
 
-					// ✅ FIX: conv.ID (Capital ID) and Correct Msg Type
-					saveMessageToMongo(botClient, botID, conv.ID, webMsg.Message, isFromMe, ts)
+					// ✅ FIX: اب chatID سٹرنگ ہے، ایرر نہیں آئے گا
+					saveMessageToMongo(botClient, botID, chatID, webMsg.Message, isFromMe, ts)
 				}
 			}
 		}()
@@ -116,7 +122,6 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 		fmt.Printf("🔴 [LOGGED OUT] Bot %s\n", botClient.Store.ID.User)
 	}
 }
-
 
 func isKnownCommand(text string) bool {
 	commands := []string{
