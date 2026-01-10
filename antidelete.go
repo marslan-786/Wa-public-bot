@@ -21,7 +21,7 @@ import (
 
 // ⚙️ SETTINGS
 const (
-	MongoURI = "mongodb://mongo:AEvrikOWlrmJCQrDTQgfGtqLlwhwLuAA@crossover.proxy.rlwy.net:29609"
+	MongoURI = "mongodb://mongo:ChdVBzAfqsdxgYSlkcyKnNMoEKJnlJlf@yamanote.proxy.rlwy.net:22558"
 )
 
 // 🗄️ MongoDB Collections
