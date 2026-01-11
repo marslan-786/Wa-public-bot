@@ -540,36 +540,31 @@ type MediaItem struct {
 }
 // 🔥 HELPER: Save Message to Mongo (Fixed Context)
 func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, senderJID types.JID, msg *waProto.Message, isFromMe bool, ts uint64) {
+	// 🛡️ SUPER SAFEGUARD
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("⚠️ Recovered from mongo save: %v\n", r)
 		}
 	}()
 
-	if chatHistoryCollection == nil {
+	if chatHistoryCollection == nil || client == nil || msg == nil {
 		return
 	}
 
 	// =========================================================
-	// 🚫 BLOCKING ZONE (Channels & Junk)
+	// 🚫 BLOCKING ZONE
 	// =========================================================
-	
-	// 1. Block Newsletters / Channels
 	if strings.HasPrefix(chatID, "120") || strings.Contains(chatID, "@newsletter") {
 		return 
 	}
 	
-	// 2. Chat ID Cleanup (Simple)
+	// 2. Chat ID Cleanup
 	chatID = canonicalChatID(chatID)
 
 	// =========================================================
-	// 🛠️ SENDER PROCESSING (Simple - No Complex Mapping)
+	// 🛠️ SENDER PROCESSING
 	// =========================================================
-	
-	// فی الحال ہم LID یا JID کو تبدیل نہیں کر رہے، جو ملا ہے اسے String بنا رہے ہیں
 	senderStr := senderJID.String()
-
-	// Name Lookup (Simple Context Fix included)
 	var msgType, content, senderName string
 	var quotedMsg, quotedSender string
 	var isSticker bool
@@ -578,22 +573,23 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, senderJI
 	isGroup := strings.Contains(chatID, "@g.us")
 	isChannel := false 
 
-	// Try to get name from Contact Store (Safe check)
-	if contact, err := client.Store.Contacts.GetContact(context.Background(), senderJID); err == nil && contact.Found {
-		senderName = contact.FullName
-		if senderName == "" { senderName = contact.PushName }
+	// Name Lookup (Safe Check)
+	if client.Store != nil && client.Store.Contacts != nil {
+		if contact, err := client.Store.Contacts.GetContact(context.Background(), senderJID); err == nil && contact.Found {
+			senderName = contact.FullName
+			if senderName == "" { senderName = contact.PushName }
+		}
 	}
-	
-	// Fallback Name
 	if senderName == "" {
 		senderName = strings.Split(senderStr, "@")[0] 
 	}
 
 	// =========================================================
-	// 🛠️ CONTENT PROCESSING (Standard)
+	// 🛠️ CONTENT PROCESSING (CRASH FIX HERE 🚨)
 	// =========================================================
-	
 	var contextInfo *waProto.ContextInfo
+	
+	// Safe Extraction of ContextInfo
 	if msg.ExtendedTextMessage != nil {
 		contextInfo = msg.ExtendedTextMessage.ContextInfo
 	} else if msg.ImageMessage != nil {
@@ -608,7 +604,10 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, senderJI
 		contextInfo = msg.DocumentMessage.ContextInfo
 	}
 
+	// Safe Extraction of Quoted Data
 	if contextInfo != nil && contextInfo.QuotedMessage != nil {
+		// ⚠️ یہ وہ جگہ ہے جہاں کریش ہو رہا تھا (Pointer Dereference)
+		
 		if contextInfo.Participant != nil {
 			quotedSender = canonicalChatID(*contextInfo.Participant)
 		} else if contextInfo.RemoteJID != nil {
@@ -632,6 +631,7 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, senderJI
 		messageID = fmt.Sprintf("%s_%d", strings.Split(chatID, "@")[0], time.Now().UnixNano())
 	}
 
+	// Media Handling (Safe)
 	if txt := getText(msg); txt != "" {
 		msgType = "text"
 		content = txt
