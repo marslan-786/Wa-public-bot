@@ -316,11 +316,9 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 
 		// 🔍 C. SESSION CHECKS (Reply Handling - The Critical Part)
-		// ہم سب سے پہلے چیک کریں گے کہ یہ کس میسج کا ریپلائی ہے
 		extMsg := v.Message.GetExtendedTextMessage()
 		
 		// 1. YouTube Search Reply (Priority Fix 🚀)
-		// اگر میسج کسی بوٹ کے میسج کا ریپلائی ہے، تب ہی یہ چیک چلے گا
 		if extMsg != nil && extMsg.ContextInfo != nil && extMsg.ContextInfo.StanzaID != nil {
 			qID := extMsg.ContextInfo.GetStanzaID()
 
@@ -331,10 +329,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			}
 			
 			// b. YouTube Search Selection (The Fix)
-			// اگر یوزر نے YouTube لسٹ کو ریپلائی کیا ہے
 			if session, ok := ytCache[qID]; ok {
-				// چیک کریں کہ ریپلائی کرنے والا وہی بندہ ہے جس نے سرچ کیا تھا
-				// نوٹ: یہ SenderID اکثر JID ہوتا ہے، اس لیے ہم User پارٹ میچ کریں گے
 				if strings.Contains(senderID, session.SenderID) || session.SenderID == v.Info.Sender.User {
 					delete(ytCache, qID) // کیش صاف کریں
 					
@@ -342,7 +337,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 					if index, err := strconv.Atoi(bodyClean); err == nil && index > 0 && index <= len(session.Results) {
 						selected := session.Results[index-1]
 						// ویڈیو ڈاؤنلوڈ پروسیس شروع کریں
-						go handleYTDownload(client, v, selected.Url, "3", false) // Default to mp4 (360p) or ask format
+						go handleYTDownload(client, v, selected.Url, "3", false)
 					} else {
 						replyMessage(client, v, "❌ غلط نمبر! براہ کرم لسٹ میں سے درست نمبر منتخب کریں۔")
 					}
@@ -350,7 +345,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 				}
 			}
 
-			// c. YouTube Format Selection (اگر فارمیٹ مینو کھلا ہے)
+			// c. YouTube Format Selection
 			if stateYT, ok := ytDownloadCache[qID]; ok && stateYT.BotLID == botID {
 				delete(ytDownloadCache, qID)
 				go handleYTDownload(client, v, stateYT.Url, bodyClean, (bodyClean == "4"))
@@ -358,14 +353,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			}
 		}
 
-		// 🔥 2. Archive Movie Selection (No Reply Needed Logic)
-		// یہ کوڈ تب چلتا ہے جب `searchCache` میں ڈیٹا ہو، چاہے ریپلائی نہ بھی کیا ہو
+		// 🔥 2. Archive Movie Selection
 		movieMutex.Lock()
 		_, isArchiveSearch := searchCache[senderID]
 		movieMutex.Unlock()
 
 		if isArchiveSearch {
-			// اگر یوٹیوب کا کوئی سیشن نہیں چل رہا، تب ہی یہ چلے
 			if _, err := strconv.Atoi(bodyClean); err == nil {
 				go handleArchive(client, v, bodyClean)
 				return
@@ -467,7 +460,13 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			return
 		}
 
+		// ✅ FIX: Defining Variables Here (Correct Scope)
 		cmd := strings.ToLower(words[0])
+		var args []string
+		if len(words) > 1 {
+			args = words[1:]
+		}
+		fullArgs := strings.TrimSpace(strings.Join(args, " "))
 		
 		// 🛡️ PERMISSION CHECK
 		if !canExecute(client, v, cmd) {
