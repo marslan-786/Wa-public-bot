@@ -1216,7 +1216,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ ╰───────────────────────╯
 ╚══════════════════════╝`,
 		BOT_NAME, OWNER_NAME, currentMode, uptimeStr,
-		p, p, p, p, p, p, p, p, p, p, p,
+		p, p, p, p, p, p, p, p, p, p, p, p,
 		p, p, p, p, p, p, p, p,
 		p, p, p, p, p, p, p, p, p, p,
 		p, p, p, p, p, p, p, p, p,
