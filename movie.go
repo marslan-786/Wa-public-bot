@@ -8,16 +8,22 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"google.golang.org/protobuf/proto"
 )
+
+// --- ⚙️ CONFIGURATION ---
+// یوزر کی ڈیمانڈ کے مطابق 1GB کا ٹکڑا
+const ChunkSize int64 = 1024 * 1024 * 1024 
 
 // --- 🧠 MEMORY SYSTEM ---
 type MovieResult struct {
@@ -52,6 +58,7 @@ type IAMetadata struct {
 	} `json:"files"`
 }
 
+// --- 🎮 MAIN HANDLER (No Changes here) ---
 func handleArchive(client *whatsmeow.Client, v *events.Message, input string) {
 	if input == "" { return }
 	input = strings.TrimSpace(input)
@@ -80,7 +87,8 @@ func handleArchive(client *whatsmeow.Client, v *events.Message, input string) {
 	if strings.HasPrefix(input, "http") {
 		react(client, v.Info.Chat, v.Info.ID, "🔗")
 		replyMessage(client, v, "⏳ *Processing Direct Link...*")
-		go downloadFileDirectly(client, v, input, "Unknown_File")
+		// ڈائریکٹ لنک کے لیے بھی نیا اسٹریمر فنکشن یوز ہوگا
+		go streamDownloadManager(client, v, input, "Unknown_File")
 		return
 	}
 
@@ -89,7 +97,7 @@ func handleArchive(client *whatsmeow.Client, v *events.Message, input string) {
 	go performSearch(client, v, input, senderJID)
 }
 
-// --- 🔍 Helper: Search Engine ---
+// --- 🔍 Search Engine (No Changes) ---
 func performSearch(client *whatsmeow.Client, v *events.Message, query string, senderJID string) {
 	encodedQuery := url.QueryEscape(fmt.Sprintf("title:(%s) AND mediatype:(movies)", query))
 	apiURL := fmt.Sprintf("https://archive.org/advancedsearch.php?q=%s&fl[]=identifier&fl[]=title&fl[]=year&fl[]=downloads&sort[]=downloads+desc&output=json&rows=10", encodedQuery)
@@ -119,7 +127,7 @@ func performSearch(client *whatsmeow.Client, v *events.Message, query string, se
 
 	docs := result.Response.Docs
 	if len(docs) == 0 {
-		replyMessage(client, v, "🚫 No movies found. Try a different name.")
+		replyMessage(client, v, "🚫 No movies found. Please Check Your Spelling or Try a different name.")
 		return
 	}
 
@@ -164,7 +172,7 @@ func performSearch(client *whatsmeow.Client, v *events.Message, query string, se
 	})
 }
 
-// --- 📥 Helper: Find Best Video & Download ---
+// --- 📥 Metadata Fetcher (Updated to call Streamer) ---
 func downloadFromIdentifier(client *whatsmeow.Client, v *events.Message, movie MovieResult) {
 	fmt.Println("🔍 [ARCHIVE] Fetching metadata for:", movie.Identifier)
 	
@@ -206,188 +214,134 @@ func downloadFromIdentifier(client *whatsmeow.Client, v *events.Message, movie M
 	finalURL := fmt.Sprintf("https://archive.org/download/%s/%s", movie.Identifier, url.PathEscape(bestFile))
 	sizeMB := float64(maxSize) / (1024 * 1024)
 	
-	// 🔥 Warning if file will be split
+	// 🔥 Warning logic simplified
 	extraWarning := ""
-	if sizeMB > 1500 {
-		extraWarning = "\n⚠️ *File > 1.5GB:* It will be sent in parts."
+	if sizeMB > 1000 { // 1000MB = 1GB
+		extraWarning = "\n⚠️ *File > 1GB:* Sending in parts via Disk Stream."
 	}
 
-	infoMsg := fmt.Sprintf("🚀 *Starting Download!*\n\n🎬 *Title:* %s\n📊 *Size:* %.2f MB%s\n\n_Downloading & Processing..._", movie.Title, sizeMB, extraWarning)
+	infoMsg := fmt.Sprintf("🚀 *Starting Download!*\n\n🎬 *Title:* %s\n📊 *Size:* %.2f MB%s\n\n_Streaming via Disk Buffer..._", movie.Title, sizeMB, extraWarning)
 	replyMessage(client, v, infoMsg)
 	
-	downloadFileDirectly(client, v, finalURL, movie.Title)
+	// 👇 پرانے فنکشن کی جگہ اب نیا اسٹریمر کال ہوگا
+	streamDownloadManager(client, v, finalURL, movie.Title)
 }
 
-// --- 🚀 Core Downloader (Auto-Splitter) ---
-func downloadFileDirectly(client *whatsmeow.Client, v *events.Message, urlStr string, customTitle string) {
+// --- 🚀 NEW: DISK-BASED PIPELINE MANAGER ---
+// یہ فنکشن پرانے downloadFileDirectly اور splitAndSend کو ضم (Merge) کر کے بنایا گیا ہے
+func streamDownloadManager(client *whatsmeow.Client, v *events.Message, urlStr string, customTitle string) {
+	// 1. سرور سے کنکشن بنائیں
 	req, _ := http.NewRequest("GET", urlStr, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0")
+	clientHttp := &http.Client{Timeout: 0} // Timeout ختم
 	
-	clientHttp := &http.Client{Timeout: 0} 
 	resp, err := clientHttp.Do(req)
 	if err != nil {
-		replyMessage(client, v, fmt.Sprintf("❌ Connection Error: %v", err))
+		replyMessage(client, v, "❌ Connection Error.")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		replyMessage(client, v, fmt.Sprintf("❌ Server Error: HTTP %d", resp.StatusCode))
+		replyMessage(client, v, "❌ Server Error: Could not access file.")
 		return
 	}
 
-	fileName := customTitle
-	if fileName == "Unknown_File" {
+	// نام کی صفائی
+	if customTitle == "Unknown_File" { 
 		parts := strings.Split(urlStr, "/")
-		fileName = parts[len(parts)-1]
+		customTitle = parts[len(parts)-1]
 	}
-	fileName = strings.ReplaceAll(fileName, "/", "_")
-	if !strings.Contains(fileName, ".") { fileName += ".mp4" }
+	customTitle = strings.ReplaceAll(customTitle, "/", "_")
+	if !strings.Contains(customTitle, ".") { customTitle += ".mp4" }
 
-	// Temp File create
-	tempFile := fmt.Sprintf("temp_%d_%s", time.Now().UnixNano(), fileName)
-	out, err := os.Create(tempFile)
-	if err != nil {
-		replyMessage(client, v, "❌ System Error: Could not create temp file.")
-		return
-	}
-	
-	// Download to Disk
-	_, err = io.Copy(out, resp.Body)
-	out.Close()
-
-	if err != nil {
-		replyMessage(client, v, "❌ Download Interrupted.")
-		os.Remove(tempFile)
-		return
-	}
-
-	// 📏 Check File Size
-	fileInfo, err := os.Stat(tempFile)
-	if err != nil {
-		os.Remove(tempFile)
-		return
-	}
-	fileSize := fileInfo.Size()
-	
-	// 🔥 SPLIT LOGIC 🔥
-	// 1.5 GB Limit (1500 * 1024 * 1024)
-	const MaxSize = 1500 * 1024 * 1024 
-
-	if fileSize > MaxSize {
-		// اگر فائل 1.5 GB سے بڑی ہے تو اسپلٹ کریں
-		fmt.Printf("⚠️ File Size: %d bytes. Starting Split Process...\n", fileSize)
-		splitAndSend(client, v, tempFile, fileName, MaxSize)
-	} else {
-		// اگر چھوٹی ہے تو ڈائریکٹ بھیج دیں
-		sendSingleFile(client, v, tempFile, fileName)
-	}
-}
-
-// 📤 Helper: Send Single File
-func sendSingleFile(client *whatsmeow.Client, v *events.Message, path string, name string) {
-	defer os.Remove(path)
-
-	// فائل ریڈ کریں (یہ ریم میں لوڈ ہوگی، 1.5GB تک ریم ہینڈل کر لیتی ہے اگر سرور اچھا ہو)
-	// لیکن چونکہ آپ کے پاس 32GB ریم ہے، یہ محفوظ ہے۔
-	fileData, err := os.ReadFile(path)
-	if err != nil { return }
-
-	fmt.Println("✅ [ARCHIVE] Uploading single file...")
-	up, err := client.Upload(context.Background(), fileData, whatsmeow.MediaDocument)
-	if err != nil {
-		replyMessage(client, v, fmt.Sprintf("❌ Upload Failed: %v", err))
-		return
-	}
-
-	sendDocMsg(client, v, up, name, "✅ Complete Movie")
-}
-
-// 🔪 Helper: Split and Send (Low RAM Usage)
-func splitAndSend(client *whatsmeow.Client, v *events.Message, sourcePath string, originalName string, chunkSize int64) {
-	defer os.Remove(sourcePath)
-
-	file, err := os.Open(sourcePath)
-	if err != nil {
-		replyMessage(client, v, "❌ Error opening file for splitting.")
-		return
-	}
-	defer file.Close()
-
-//	buffer := make([]byte, 1024*32) // 32KB buffer for copying
 	partNum := 1
+	copyBuffer := make([]byte, 32*1024) // 32KB buffer for IO operations
 
 	for {
-		// پارٹ کا نام بنائیں
-		partName := fmt.Sprintf("%s.part%d.mp4", originalName, partNum)
-		tempPartPath := fmt.Sprintf("temp_part_%d_%d.mp4", time.Now().UnixNano(), partNum)
-
-		// نیا پارٹ فائل بنائیں
-		partFile, err := os.Create(tempPartPath)
+		// 2. ڈسک پر ٹیمپ فائل بنائیں (ریم استعمال نہیں ہوگی)
+		partFileName := fmt.Sprintf("stream_buffer_%d_part_%d.mp4", time.Now().UnixNano(), partNum)
+		fileOnDisk, err := os.Create(partFileName)
 		if err != nil {
-			replyMessage(client, v, "❌ Error creating part file.")
+			replyMessage(client, v, "❌ Disk Error: Cannot create buffer file.")
 			return
 		}
 
-		// کاپی کریں (صرف 1.5GB تک)
-		// io.CopyN ڈیٹا کو سورس سے پارٹ فائل میں کاپی کرے گا بغیر پوری ریم بھرے
-		written, err := io.CopyN(partFile, file, chunkSize)
-		partFile.Close()
+		// 3. ✨ PIPING MAGIC: نیٹ ورک سے 1GB ڈیٹا سیدھا ڈسک فائل میں
+		// io.LimitReader صرف 1GB اٹھائے گا اور رک جائے گا
+		written, err := io.CopyBuffer(io.LimitReader(resp.Body, ChunkSize), fileOnDisk, copyBuffer)
+		fileOnDisk.Close() // فائل محفوظ، اب بند
 
 		if written > 0 {
-			fmt.Printf("📤 Uploading Part %d (%d bytes)...\n", partNum, written)
+			fmt.Printf("💾 Part %d Saved to Disk (%.2f MB). Uploading...\n", partNum, float64(written)/(1024*1024))
 			
-			// پارٹ کو میموری میں لوڈ کر کے اپلوڈ کریں
-			partData, _ := os.ReadFile(tempPartPath)
-			up, upErr := client.Upload(context.Background(), partData, whatsmeow.MediaDocument)
+			// 4. ڈسک سے اپلوڈ کریں
+			uploadErr := uploadChunkFromDisk(client, v, partFileName, customTitle, partNum)
 			
-			// فوری ڈیلیٹ کریں تاکہ ڈسک بھر نہ جائے
-			os.Remove(tempPartPath) 
+			// 5. 🔥 اہم: فائل فوراً ڈیلیٹ کریں
+			os.Remove(partFileName) 
+			
+			// ریم صفائی
+			debug.FreeOSMemory()
 
-			if upErr != nil {
-				replyMessage(client, v, fmt.Sprintf("❌ Failed to upload Part %d", partNum))
+			if uploadErr != nil {
+				replyMessage(client, v, fmt.Sprintf("❌ Upload Failed for Part %d", partNum))
 				return
 			}
-
-			// میسج بھیجیں
-			caption := fmt.Sprintf("💿 *Part %d* \n📂 %s", partNum, originalName)
-			sendDocMsg(client, v, up, partName, caption)
 		}
 
-		// اگر EOF (فائل ختم) ہو گئی تو بریک کریں
+		// اگر فائل ختم ہو گئی (EOF)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			// اگر کوئی اور ایرر آیا (مطلب ابھی فائل باقی ہے لیکن کاپی نہیں ہوئی)
-			break 
+			replyMessage(client, v, "❌ Stream Interrupted from Source.")
+			break
 		}
 
 		partNum++
 	}
-	
+
 	react(client, v.Info.Chat, v.Info.ID, "✅")
-	replyMessage(client, v, "✅ *All Parts Sent!*")
+	replyMessage(client, v, "✅ *Completed!*")
 }
 
-// 📨 Helper: Construct & Send Message
-func sendDocMsg(client *whatsmeow.Client, v *events.Message, up whatsmeow.UploadResponse, fileName, caption string) {
-	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+// 📤 Helper: Upload Single Chunk
+func uploadChunkFromDisk(client *whatsmeow.Client, v *events.Message, path string, originalName string, partNum int) error {
+	// فائل ڈسک سے پڑھیں
+	fileData, err := os.ReadFile(path)
+	if err != nil { return err }
+
+	// اپلوڈ کریں
+	up, err := client.Upload(context.Background(), fileData, whatsmeow.MediaDocument)
+	
+	// میموری خالی کریں
+	fileData = nil 
+	runtime.GC() 
+
+	if err != nil { return err }
+
+	finalName := fmt.Sprintf("%s_Part_%d.mp4", originalName, partNum)
+	caption := fmt.Sprintf("💿 *Part %d* \n📂 %s", partNum, originalName)
+
+	// میسج سینڈ کریں
+	return client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		DocumentMessage: &waProto.DocumentMessage{
 			URL:           proto.String(up.URL),
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,
 			Mimetype:      proto.String("video/mp4"),
-			Title:         proto.String(fileName),
-			FileName:      proto.String(fileName),
-			FileLength:    proto.Uint64(uint64(up.FileLength)), // Correct Size
+			Title:         proto.String(finalName),
+			FileName:      proto.String(finalName),
+			FileLength:    proto.Uint64(uint64(up.FileLength)),
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 			Caption:       proto.String(caption),
 		},
-	})
+	}).Error
 }
 
+// --- 🛠️ UTILS ---
 func isNumber(s string) bool {
 	_, err := strconv.Atoi(s)
 	return err == nil
