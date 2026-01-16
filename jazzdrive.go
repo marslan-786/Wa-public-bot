@@ -2,22 +2,22 @@ package main
 
 import (
 	"bytes"
-	"context"
+	//"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
-	"os/exec"
+	//"os/exec"
 	"path/filepath"
-	"strings"
+	//"strings"
 	"time"
 
-	"go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
+	//"go.mau.fi/whatsmeow"
+//	waProto "go.mau.fi/whatsmeow/binary/proto"
+	//"go.mau.fi/whatsmeow/types/events"
+//	"google.golang.org/protobuf/proto"
 )
 
 // آپ کی Railway API کا لنک
