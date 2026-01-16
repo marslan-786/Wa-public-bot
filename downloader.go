@@ -51,8 +51,9 @@ type DLResult struct {
 }
 
 // 🚀 ہیوی ڈیوٹی میڈیا انجن
+// 🚀 ہیوی ڈیوٹی میڈیا انجن (Parallel Processing: Download + User Interaction)
 func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode string, optionalFormat ...string) {
-	// 1️⃣ ٹائٹل نکالیں
+	// 1️⃣ ٹائٹل نکالیں (فوری طور پر)
 	fmt.Println("🔍 Fetching Title...")
 	cmdTitle := exec.Command("yt-dlp", "--get-title", "--no-playlist", ytUrl)
 	titleOut, _ := cmdTitle.Output()
@@ -65,7 +66,7 @@ func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode st
 		cleanTitle = strings.ReplaceAll(cleanTitle, "\"", "'")
 	}
 
-	// 2️⃣ مینو کارڈ بھیجیں
+	// 2️⃣ مینو کارڈ **فوراً** بھیجیں (تاکہ یوزر کو انتظار نہ کرنا پڑے)
 	card := fmt.Sprintf(`╔══════════════════════╗
 ║ ✨ %s DOWNLOADER
 ╠══════════════════════╣
@@ -83,8 +84,9 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 
 	replyMessage(client, v, card)
 
-	// 3️⃣ بیک گراؤنڈ ڈاؤنلوڈ شروع کریں
-	dlChan := make(chan DLResult, 1)
+	// 3️⃣ بیک گراؤنڈ ڈاؤنلوڈ شروع کریں (چینل کے ذریعے)
+	// یہ الگ تھریڈ میں چلے گا، مین کوڈ رکے گا نہیں
+	dlChan := make(chan DownloadResult, 1)
 
 	go func() {
 		tempFileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
@@ -105,12 +107,12 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 			args = []string{"--no-playlist", "-f", formatArg, "--merge-output-format", "mp4", "-o", tempFileName, ytUrl}
 		}
 
-		fmt.Printf("🛠️ [BG] Downloading: %s\n", cleanTitle)
+		fmt.Printf("🛠️ [BG] Downloading Started: %s\n", cleanTitle)
 		cmd := exec.Command("yt-dlp", args...)
-		err := cmd.Run()
+		err := cmd.Run() // یہ ڈاؤنلوڈ ہونے تک رکا رہے گا (Backround میں)
 
 		if err != nil {
-			dlChan <- DLResult{Err: err}
+			dlChan <- DownloadResult{Err: err}
 			return
 		}
 
@@ -120,16 +122,17 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		info, _ := os.Stat(finalPath)
 
 		// رزلٹ واپس بھیجیں
-		dlChan <- DLResult{
+		dlChan <- DownloadResult{
 			Path:  finalPath,
 			Title: cleanTitle,
 			Size:  info.Size(),
 			Mime:  mode,
 			Err:   nil,
 		}
+		fmt.Printf("✅ [BG] Download Finished: %s\n", cleanTitle)
 	}()
 
-	// 4️⃣ یوزر کے جواب کا انتظار کریں (60 سیکنڈ ٹائم آؤٹ)
+	// 4️⃣ یوزر کے جواب کا انتظار کریں (جبکہ ڈاؤنلوڈ پیچھے چل رہا ہے)
 	senderID := v.Info.Sender.ToNonAD().String()
 	userChoice, success := WaitForUserReply(senderID, 60*time.Second)
 
@@ -141,9 +144,14 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		// --- OPTION 1: WHATSAPP ---
 		if success {
 			react(client, v.Info.Chat, v.Info.ID, "📤")
+			replyMessage(client, v, "📥 Waiting for download to finish...")
+		} else {
+			// Timeout: خاموشی سے بھیج دیں
 		}
 
+		// 🛑 یہاں مین تھریڈ رکے گا جب تک ڈاؤنلوڈ مکمل نہ ہو جائے
 		res := <-dlChan
+		
 		if res.Err != nil {
 			replyMessage(client, v, "❌ Download Failed.")
 			return
@@ -158,17 +166,13 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		react(client, v.Info.Chat, v.Info.ID, "☁️")
 		replyMessage(client, v, "📱 *Enter Jazz Number (03XXXXXXXXX):*\n_(You have 60s)_")
 
-		res := <-dlChan
-		if res.Err != nil {
-			replyMessage(client, v, "❌ Download Failed in background.")
-			return
-		}
-		defer os.Remove(res.Path)
-
 		// 1. Get Number
 		phone, ok := WaitForUserReply(senderID, 60*time.Second)
 		if !ok || phone == "" {
 			replyMessage(client, v, "❌ Timeout.")
+			// اگر یوزر بھاگ گیا، تو بھی ڈاؤنلوڈ کی صفائی کرنی پڑے گی
+			res := <-dlChan
+			if res.Err == nil { os.Remove(res.Path) }
 			return
 		}
 
@@ -181,14 +185,28 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 			otp, ok := WaitForUserReply(senderID, 60*time.Second)
 			if !ok || otp == "" {
 				replyMessage(client, v, "❌ Timeout.")
+				res := <-dlChan
+				if res.Err == nil { os.Remove(res.Path) }
 				return
 			}
 
-			// 3. Verify & Upload
-			replyMessage(client, v, "🔐 Verifying...")
+			// 3. Verify Login
+			replyMessage(client, v, "🔐 Verifying Login...")
 			if jazzVerifyOTP(userID, otp) {
-				replyMessage(client, v, "☁️ *Uploading to Jazz Drive...*\n_(This may take time depending on file size)_")
+				replyMessage(client, v, "✅ Login Success! Checking file status...")
 
+				// 🛑 اب یہاں ڈاؤنلوڈ کا انتظار کریں (ہو سکتا ہے لاگ ان کرتے کرتے فائل تیار ہو گئی ہو)
+				res := <-dlChan
+				
+				if res.Err != nil {
+					replyMessage(client, v, "❌ Download Failed in background.")
+					return
+				}
+				defer os.Remove(res.Path)
+
+				// 4. Upload to Jazz Drive
+				replyMessage(client, v, "☁️ *Uploading to Jazz Drive...*\n_(Please wait)_")
+				
 				link, err := jazzUploadFile(userID, res.Path)
 				if err == nil {
 					finalText := fmt.Sprintf("🎉 *Upload Complete!*\n\n📂 *File:* %s\n📦 *Size:* %.2f MB\n🔗 *Link:* %s",
@@ -199,9 +217,13 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 				}
 			} else {
 				replyMessage(client, v, "❌ Invalid OTP.")
+				res := <-dlChan
+				if res.Err == nil { os.Remove(res.Path) }
 			}
 		} else {
 			replyMessage(client, v, "❌ Failed to send OTP. Check number.")
+			res := <-dlChan
+			if res.Err == nil { os.Remove(res.Path) }
 		}
 
 	} else {
@@ -214,7 +236,6 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		}
 	}
 }
-
 // ---------------------------------------------------------
 // 📤 HELPER: Upload To WhatsApp (Updated with filepath)
 // ---------------------------------------------------------
@@ -678,23 +699,29 @@ func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl str
 }
 
 func handleYTDownload(client *whatsmeow.Client, v *events.Message, ytUrl, choice string, isAudio bool) {
+	// ⏳ ری ایکشن دیں تاکہ یوزر کو پتہ چلے ریکویسٹ لے لی گئی ہے
 	react(client, v.Info.Chat, v.Info.ID, "⏳")
-	
+
 	mode := "video"
-	format := "bestvideo[height<=720]+bestaudio/best" // Default
+	// فارمیٹ سلیکشن لاجک (وہی پرانی)
+	format := "bestvideo[height<=720]+bestaudio/best"
 
 	if isAudio {
 		mode = "audio"
 	} else {
 		switch choice {
-		case "1": format = "bestvideo[height<=360]+bestaudio/best"
-		case "2": format = "bestvideo[height<=720]+bestaudio/best"
-		case "3": format = "bestvideo[height<=1080]+bestaudio/best"
+		case "1":
+			format = "bestvideo[height<=360]+bestaudio/best"
+		case "2":
+			format = "bestvideo[height<=720]+bestaudio/best"
+		case "3":
+			format = "bestvideo[height<=1080]+bestaudio/best"
 		}
 	}
 
-	// ✅ اب یہ 5 چیزیں بھیجے گا اور بوٹ اسے قبول کر لے گا
-	go downloadAndSend(client, v, ytUrl, mode, format) 
+	// 🚀 اہم تبدیلی: "go" کیورڈ کے ساتھ کال کریں تاکہ یہ فوراً بیک گراؤنڈ میں چلا جائے
+	// اور یوزر کو اگلا مینو فوراً نظر آئے
+	go downloadAndSend(client, v, ytUrl, mode, format)
 }
 
 // ------------------- مددگار فنکشنز (Helpers) -------------------
