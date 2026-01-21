@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY . .
 
+# گو موڈیولز کو صاف ستھرا رکھیں
 RUN rm -f go.mod go.sum || true
 RUN go mod init impossible-bot && \
     go get go.mau.fi/whatsmeow@latest && \
@@ -39,23 +40,31 @@ COPY lid-extractor.js ./
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (gTTS - GUARANTEED)
+# 3. Stage: Final Runtime (Super Fast & Optimized)
 # ═══════════════════════════════════════════════════════════
 FROM python:3.10-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1
 
+# 🔥 Speed Up: Added 'aria2' & 'atomicparsley'
+# ✅ Fix Warning: Node is installed, we will link it below
 RUN apt-get update && apt-get install -y \
-    ffmpeg imagemagick curl sqlite3 libsqlite3-0 nodejs npm \
+    ffmpeg imagemagick curl sqlite3 libsqlite3-0 \
+    nodejs npm \
+    aria2 atomicparsley \
     ca-certificates libgomp1 megatools libwebp-dev webp \
     libwebpmux3 libwebpdemux2 libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
+# 🛠️ CRITICAL FIX: yt-dlp needs 'node', not 'nodejs'
+# یہ لائن وہ وارننگ ختم کرے گی
+RUN ln -sf /usr/bin/nodejs /usr/local/bin/node
+
+# yt-dlp انسٹالیشن
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-# ✅ Python Libraries (gTTS Added)
-# gTTS = Google Text-to-Speech (Simple & Reliable)
+# Python لائبریریز
 RUN pip3 install --no-cache-dir \
     torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
     && pip3 install --no-cache-dir \
@@ -64,6 +73,7 @@ RUN pip3 install --no-cache-dir \
 
 WORKDIR /app
 
+# کاپی کریں (سب کچھ وہی ہے)
 COPY --from=go-builder /app/bot ./bot
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=node-builder /app/lid-extractor.js ./lid-extractor.js
