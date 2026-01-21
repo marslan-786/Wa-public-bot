@@ -721,41 +721,52 @@ func handleGithub(client *whatsmeow.Client, v *events.Message, urlStr string) {
 func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	if query == "" { return }
 	
-	// 1. ری ایکشن اور لاگ
+	// 1. ری ایکشن (تاکہ پتا چلے کمانڈ موصول ہو گئی)
 	react(client, v.Info.Chat, v.Info.ID, "🔍")
 	fmt.Printf("🔍 [YTS START] Query: %s\n", query)
 
 	// بوٹ کی کلین آئی ڈی لیں
 	myID := getCleanID(client.Store.ID.User)
 
-	// 2. محفوظ کمانڈ (Better for latest yt-dlp)
-	// ہم --print استعمال کر رہے ہیں تاکہ ٹائٹل اور آئی ڈی ایک ساتھ آئیں
-	cmd := exec.Command("yt-dlp", 
+	// 🔥 FIX: 15 سیکنڈ کا ٹائم آؤٹ (تاکہ بوٹ ہینگ نہ ہو)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// 🔥 FIX: --force-ipv4 (کنکشن کو تیز بنانے کے لیے)
+	cmd := exec.CommandContext(ctx, "yt-dlp", 
 		"ytsearch5:"+query, 
 		"--print", "%(title)s|||%(id)s", 
 		"--no-playlist",
 		"--no-warnings",
+		"--force-ipv4", // نیٹ ورک ہینگ ہونے سے بچاتا ہے
 	)
 
-	// ایرر پکڑنے کے لیے Stderr پائپ
+	// ایرر پکڑنے کے لیے
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
+	fmt.Println("⏳ [YTS] Executing yt-dlp command...")
 	out, err := cmd.Output()
 	
-	// 3. ڈیبگنگ (اگر فیل ہو تو وجہ سامنے آئے)
+	// 3. اگر ٹائم آؤٹ ہو یا ایرر آئے
+	if ctx.Err() == context.DeadlineExceeded {
+		fmt.Println("❌ [YTS TIMEOUT] Command took too long (>15s).")
+		replyMessage(client, v, "⚠️ *Search Timeout!* Try again later.")
+		return
+	}
+
 	if err != nil {
 		fmt.Printf("❌ [YTS FAIL] Error: %v\n⚠️ [STDERR]: %s\n", err, stderr.String())
-		// آپ چاہیں تو یہاں یوزر کو بتا سکتے ہیں کہ سرچ فیل ہو گئی
+		replyMessage(client, v, "❌ Search Failed due to server error.")
 		return
 	}
 
 	outputStr := strings.TrimSpace(string(out))
-	// fmt.Printf("✅ [YTS OUTPUT]:\n%s\n", outputStr) // اگر آپ پورا آؤٹ پٹ دیکھنا چاہیں تو ان-کمنٹ کریں
-
 	lines := strings.Split(outputStr, "\n")
+	
 	if len(lines) == 0 || outputStr == "" { 
 		fmt.Println("⚠️ [YTS] No results found.")
+		replyMessage(client, v, "❌ No results found.")
 		return 
 	}
 
@@ -764,7 +775,6 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	
 	count := 0
 	for _, line := range lines {
-		// ہم نے ||| سے الگ کیا تھا، اب واپس توڑیں
 		parts := strings.Split(line, "|||")
 		if len(parts) < 2 { continue }
 
@@ -778,7 +788,8 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	}
 
 	if count == 0 {
-		fmt.Println("⚠️ [YTS] Parsing failed, 0 results extracted.")
+		fmt.Println("⚠️ [YTS] Parsing failed.")
+		replyMessage(client, v, "❌ Error parsing results.")
 		return
 	}
 
@@ -796,7 +807,6 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 		fmt.Printf("❌ [YTS SEND ERR] %v\n", err)
 	}
 }
-
 
 func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl string) {
 	myID := getCleanID(client.Store.ID.User)
