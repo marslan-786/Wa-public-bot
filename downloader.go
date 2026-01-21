@@ -55,9 +55,24 @@ type DLResult struct {
 const MaxWhatsAppSizeMB = 1500.0
 
 func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode string, optionalFormat ...string) {
+	// 🧹 0️⃣ DISK CLEANUP (AUTO-WIPE)
+	// ہر بار کمانڈ چلنے پر یہ چیک کرے گا کہ کوئی بھی پرانی فائل (جو 5 منٹ سے زیادہ پرانی ہو) اسے اڑا دے۔
+	go func() {
+		files, _ := filepath.Glob("*.*") // تمام فائلز چیک کریں
+		for _, f := range files {
+			if strings.HasSuffix(f, ".mp4") || strings.HasSuffix(f, ".mp3") || strings.HasPrefix(f, "temp_") {
+				info, err := os.Stat(f)
+				if err == nil && time.Since(info.ModTime()) > 5*time.Minute {
+					fmt.Printf("🧹 [CLEANUP] Deleting old file: %s\n", f)
+					os.Remove(f)
+				}
+			}
+		}
+	}()
+
 	// 1️⃣ صارف کو بتائیں
 	react(client, v.Info.Chat, v.Info.ID, "⬇️")
-	statusMsgID := replyMessage(client, v, "⏳ *Downloading Media...* Please wait.\n_(Optimized for 1.5GB Limits)_")
+	statusMsgID := replyMessage(client, v, "⏳ *Downloading Media...* Please wait.")
 
 	// 2️⃣ ٹائٹل فیچ کریں
 	cmdTitle := exec.Command("yt-dlp", "--get-title", "--no-playlist", ytUrl)
@@ -155,7 +170,7 @@ _(Default: WhatsApp)_`, cleanTitle, fileSizeMB)
 
 		// چیک کریں اگر فائل 1.5GB (MaxWhatsAppSizeMB) سے بڑی ہے
 		if fileSizeMB > MaxWhatsAppSizeMB && mode != "audio" {
-			replyMessage(client, v, fmt.Sprintf("⚠️ *File is large (%.2f GB).* Splitting into 1.5GB parts for WhatsApp...", fileSizeMB/1024))
+			replyMessage(client, v, fmt.Sprintf("⚠️ *File is large (%.2f GB).* Wait A few minutes", fileSizeMB/1024))
 			
 			// 🔥 1.5GB Split Function Call
 			parts, err := splitVideoSmart(finalPath, MaxWhatsAppSizeMB) 
@@ -184,14 +199,13 @@ _(Default: WhatsApp)_`, cleanTitle, fileSizeMB)
 
 	} else if strings.TrimSpace(userChoice) == "2" {
 		// ==================================================
-		// ☁️ OPTION 2: JAZZ DRIVE (Original Interaction Restored)
+		// ☁️ OPTION 2: JAZZ DRIVE (Robust Retry Logic)
 		// ==================================================
 		react(client, v.Info.Chat, v.Info.ID, "☁️")
 		
-		// 1. Ask for Number (Original Message)
+		// 1. Ask for Number
 		replyMessage(client, v, "📱 *Enter Jazz Number (03XXXXXXXXX):*\n_(You have 2 mins)_")
 
-		// 2. Wait for Number
 		phone, ok := WaitForUserReply(senderID, 120*time.Second)
 		if !ok || phone == "" {
 			replyMessage(client, v, "❌ Timeout. Sending to WhatsApp instead.")
@@ -200,45 +214,58 @@ _(Default: WhatsApp)_`, cleanTitle, fileSizeMB)
 			return
 		}
 
-		// 3. Send OTP Message & Execute
+		// 2. Send OTP
 		userID := fmt.Sprintf("user_%d", time.Now().Unix())
-		replyMessage(client, v, "🔄 Sending OTP...") // یہ رہا وہ میسج جو آپ چاہ رہے تھے
+		replyMessage(client, v, "🔄 Sending OTP...")
 
 		if jazzGenOTP(userID, phone) {
-			// 4. Ask for OTP Input
 			replyMessage(client, v, "🔑 *OTP Sent! Enter 4-digit code:*")
 			
-			otp, ok := WaitForUserReply(senderID, 120*time.Second)
-			if !ok || otp == "" {
-				replyMessage(client, v, "❌ Timeout. Sending to WhatsApp.")
-				uploadToWhatsApp(client, v, DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}, mode)
-				os.Remove(finalPath)
-				return
-			}
-
-			// 5. Verify Message
-			replyMessage(client, v, "🔐 Verifying...") // ویریفکیشن کا میسج
-
-			if jazzVerifyOTP(userID, otp) {
-				// 6. Upload Message
-				replyMessage(client, v, "☁️ *Uploading to Jazz Drive...*\n_(This may take time)_")
-
-				// ڈائریکٹ اپلوڈ (No Splitting for Drive)
-				link, err := jazzUploadFile(userID, finalPath)
-				if err == nil {
-					finalText := fmt.Sprintf("🎉 *Upload Complete!*\n\n📂 *File:* %s\n📦 *Size:* %.2f MB\n🔗 *Link:* %s",
-						cleanTitle, fileSizeMB, link)
-					replyMessage(client, v, finalText)
-				} else {
-					replyMessage(client, v, "❌ "+err.Error())
+			// 🔥 RETRY LOOP (2 Attempts)
+			otpVerified := false
+			for attempt := 1; attempt <= 2; attempt++ {
+				otp, ok := WaitForUserReply(senderID, 120*time.Second)
+				if !ok || otp == "" {
+					break // Timeout will go to fallback
 				}
-			} else {
-				replyMessage(client, v, "❌ Invalid OTP.")
+
+				replyMessage(client, v, "🔐 Verifying...")
+
+				if jazzVerifyOTP(userID, otp) {
+					otpVerified = true
+					
+					// Upload to Drive
+					replyMessage(client, v, "☁️ *Uploading to Jazz Drive...*\n_(This may take time)_")
+					link, err := jazzUploadFile(userID, finalPath)
+					
+					if err == nil {
+						finalText := fmt.Sprintf("🎉 *Upload Complete!*\n\n📂 *File:* %s\n📦 *Size:* %.2f MB\n🔗 *Link:* %s",
+							cleanTitle, fileSizeMB, link)
+						replyMessage(client, v, finalText)
+					} else {
+						replyMessage(client, v, "❌ Upload Failed: "+err.Error())
+						// اگر اپلوڈ فیل ہو تو کیا واٹس ایپ پر بھیجیں؟ (User choice, currently just showing error)
+					}
+					break // Loop ختم، کام ہو گیا
+				} else {
+					if attempt < 2 {
+						replyMessage(client, v, "❌ Invalid OTP! *Try Again (Last Chance):*")
+					}
+				}
 			}
+
+			// 🔥 FALLBACK: اگر 2 بار غلط ہوا یا ٹائم آؤٹ ہوا
+			if !otpVerified {
+				replyMessage(client, v, "❌ OTP Failed/Timeout. Sending to WhatsApp to save data...")
+				uploadToWhatsApp(client, v, DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}, mode)
+			}
+
 		} else {
 			replyMessage(client, v, "❌ Failed to send OTP. Check number.")
+			uploadToWhatsApp(client, v, DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}, mode)
 		}
 		
+		// 🧹 لازمی صفائی (چاہے اپلوڈ ہوا ہو یا واٹس ایپ پر گیا ہو)
 		os.Remove(finalPath)
 
 	} else {
@@ -247,6 +274,7 @@ _(Default: WhatsApp)_`, cleanTitle, fileSizeMB)
 		os.Remove(finalPath)
 	}
 }
+
 
 
 // 🔥 SMART SPLIT FUNCTION (Time-based calculation for playability)
