@@ -719,25 +719,68 @@ func handleGithub(client *whatsmeow.Client, v *events.Message, urlStr string) {
 // 📺 یوٹیوب سرچ اور مینو (YTS)
 func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	if query == "" { return }
-	react(client, v.Info.Chat, v.Info.ID, "🔍")
 	
+	// 1. ری ایکشن اور لاگ
+	react(client, v.Info.Chat, v.Info.ID, "🔍")
+	fmt.Printf("🔍 [YTS START] Query: %s\n", query)
+
 	// بوٹ کی کلین آئی ڈی لیں
 	myID := getCleanID(client.Store.ID.User)
 
-	cmd := exec.Command("yt-dlp", "ytsearch5:"+query, "--get-title", "--get-id", "--no-playlist")
-	out, _ := cmd.Output()
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) < 2 { return }
+	// 2. محفوظ کمانڈ (Better for latest yt-dlp)
+	// ہم --print استعمال کر رہے ہیں تاکہ ٹائٹل اور آئی ڈی ایک ساتھ آئیں
+	cmd := exec.Command("yt-dlp", 
+		"ytsearch5:"+query, 
+		"--print", "%(title)s|||%(id)s", 
+		"--no-playlist",
+		"--no-warnings",
+	)
+
+	// ایرر پکڑنے کے لیے Stderr پائپ
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	out, err := cmd.Output()
+	
+	// 3. ڈیبگنگ (اگر فیل ہو تو وجہ سامنے آئے)
+	if err != nil {
+		fmt.Printf("❌ [YTS FAIL] Error: %v\n⚠️ [STDERR]: %s\n", err, stderr.String())
+		// آپ چاہیں تو یہاں یوزر کو بتا سکتے ہیں کہ سرچ فیل ہو گئی
+		return
+	}
+
+	outputStr := strings.TrimSpace(string(out))
+	// fmt.Printf("✅ [YTS OUTPUT]:\n%s\n", outputStr) // اگر آپ پورا آؤٹ پٹ دیکھنا چاہیں تو ان-کمنٹ کریں
+
+	lines := strings.Split(outputStr, "\n")
+	if len(lines) == 0 || outputStr == "" { 
+		fmt.Println("⚠️ [YTS] No results found.")
+		return 
+	}
 
 	var results []YTSResult
-	// ✨ Bullet Style Design: یہ کبھی نہیں ٹوٹتا
 	menuText := "╭─── 📺 *YOUTUBE SEARCH* ───╮\n│\n"
 	
-	for i := 0; i < len(lines)-1; i += 2 {
-		title := lines[i]
-		results = append(results, YTSResult{Title: title, Url: "https://www.youtube.com/watch?v=" + lines[i+1]})
-		menuText += fmt.Sprintf("📍 *[%d]* %s\n│ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n", (i/2)+1, title)
+	count := 0
+	for _, line := range lines {
+		// ہم نے ||| سے الگ کیا تھا، اب واپس توڑیں
+		parts := strings.Split(line, "|||")
+		if len(parts) < 2 { continue }
+
+		title := strings.TrimSpace(parts[0])
+		vidID := strings.TrimSpace(parts[1])
+		
+		results = append(results, YTSResult{Title: title, Url: "https://www.youtube.com/watch?v=" + vidID})
+		
+		count++
+		menuText += fmt.Sprintf("📍 *[%d]* %s\n│ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n", count, title)
 	}
+
+	if count == 0 {
+		fmt.Println("⚠️ [YTS] Parsing failed, 0 results extracted.")
+		return
+	}
+
 	menuText += "│\n╰────────────────────╯"
 
 	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
@@ -745,10 +788,14 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	})
 
 	if err == nil {
+		fmt.Printf("✅ [YTS SENT] Menu sent with %d results.\n", count)
 		ytCache[resp.ID] = YTSession{Results: results, SenderID: v.Info.Sender.User, BotLID: myID}
 		go func() { time.Sleep(2 * time.Minute); delete(ytCache, resp.ID) }()
+	} else {
+		fmt.Printf("❌ [YTS SEND ERR] %v\n", err)
 	}
 }
+
 
 func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl string) {
 	myID := getCleanID(client.Store.ID.User)
