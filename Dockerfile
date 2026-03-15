@@ -1,4 +1,4 @@
-Follow the Silent Hackers channel on WhatsApp: # ═══════════════════════════════════════════════════════════
+#Follow the Silent Hackers channel on WhatsApp: # ═══════════════════════════════════════════════════════════
 # 1. Stage: Go Builder
 # ═══════════════════════════════════════════════════════════
 FROM golang:1.25-bookworm AS go-builder
